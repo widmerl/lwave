@@ -1,0 +1,977 @@
+<title>L-wave Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: header strip, the panel replica full width, then console + inspector side by side (stacked on phones). */
+:root {
+  --bg: #e9ece9;
+  --surface: #f7f8f6;
+  --fg: #1c2321;
+  --muted: #5d6662;
+  --line: #ccd3cf;
+  --accent: #1f8a7e;
+  --accent-ink: #ffffff;
+  --warn: #b5530f;
+  --ok: #2f7d43;
+  /* panel material */
+  --panel: #f4f2ec;
+  --panel-edge: #3b403d;
+  --hex: #e5e2da;
+  --hex-c: #d0cbc0;
+  --hex-stroke: #a9a69d;
+  --ink: #262a28;
+  --ink-2: #6b706c;
+  --led-off: #f3e7b8;
+  --led-off-stroke: #b8a970;
+  --hot: #f0a020;
+  /* sections, as printed on the panel */
+  --lfo: #7a5ba8;
+  --env: #24998b;
+  --fx: #df7b26;
+  --flt: #2f69a4;
+  --osc: #5b8d38;
+  --mst: #c0443a;
+  --font-ui: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131816; --surface: #1b211f; --fg: #e5ebe8; --muted: #9aa49f; --line: #2d3532;
+    --accent: #3cb7a8; --accent-ink: #0d1312; --warn: #f0954b; --ok: #6cc282;
+    --panel: #262c29; --panel-edge: #0b0e0d; --hex: #353c38; --hex-c: #444c47; --hex-stroke: #59625d;
+    --ink: #e9eeeb; --ink-2: #a3ada8; --led-off: #4a4632; --led-off-stroke: #6b6545; --hot: #f5b13d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131816; --surface: #1b211f; --fg: #e5ebe8; --muted: #9aa49f; --line: #2d3532;
+  --accent: #3cb7a8; --accent-ink: #0d1312; --warn: #f0954b; --ok: #6cc282;
+  --panel: #262c29; --panel-edge: #0b0e0d; --hex: #353c38; --hex-c: #444c47; --hex-stroke: #59625d;
+  --ink: #e9eeeb; --ink-2: #a3ada8; --led-off: #4a4632; --led-off-stroke: #6b6545; --hot: #f5b13d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px 28px;
+}
+.wrap { max-width: 1480px; margin: 0 auto; display: grid; gap: 14px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: 0.02em; }
+.brand span { color: var(--muted); font-size: 13px; }
+.tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.tabs button { border: 0; background: transparent; color: var(--fg); font: 600 13px var(--font-ui); padding: 8px 14px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--fg); color: var(--bg); }
+.tabs button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: 600 13px var(--font-ui);
+  padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.chip { font: 500 12px var(--font-mono); padding: 4px 8px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chip b { color: var(--fg); font-weight: 500; }
+.chip.live { border-color: var(--accent); color: var(--fg); }
+.chip.warn { border-color: var(--warn); color: var(--warn); }
+.stage { position: relative; }
+@media (max-width: 900px) { .stage { overflow-x: auto; } svg#panel { min-width: 960px; } }
+.banner { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; min-height: 20px; }
+.banner strong { color: var(--fg); }
+svg#panel { display: block; width: 100%; height: auto; user-select: none; -webkit-user-select: none; }
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.overlay .btn { pointer-events: auto; font-size: 16px; padding: 14px 24px; box-shadow: 0 6px 24px rgba(0,0,0,0.18); }
+.lower { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .lower { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+.card h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+#log { height: 260px; overflow: auto; margin: 0; padding: 10px; background: var(--bg); border-radius: 6px;
+  font: 12px/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+.cmdrow { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.cmdrow input[type="text"] { flex: 1 1 200px; min-width: 0; font: 13px var(--font-mono); padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+.quick { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.quick button { font: 12px var(--font-mono); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: transparent; color: var(--fg); cursor: pointer; }
+.side { display: grid; gap: 14px; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 13px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.field { display: grid; grid-template-columns: 110px 1fr 70px; align-items: center; gap: 10px; margin-top: 8px; font-size: 13px; }
+.field output { font: 12px var(--font-mono); text-align: right; color: var(--muted); }
+.field input[type="range"] { width: 100%; accent-color: var(--accent); }
+.check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; }
+kbd { font: 11px var(--font-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--bg); }
+/* panel styling */
+.ctl { cursor: grab; touch-action: none; outline: none; }
+.ctl:focus-visible .focusring { stroke: var(--accent); stroke-width: 3; }
+.readonly .ctl { cursor: default; }
+.key { cursor: pointer; touch-action: none; }
+.readonly .key { cursor: default; }
+.sel .selring { stroke: var(--accent); stroke-width: 3; stroke-dasharray: 5 4; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand"><h1>L-wave</h1><span>firmware 0.1 · Tonnetz synth</span></div>
+    <div class="tabs" role="tablist" aria-label="Mode">
+      <button id="tab-sim" role="tab" aria-selected="true">Simulator</button>
+      <button id="tab-mon" role="tab" aria-selected="false">Hardware monitor</button>
+    </div>
+    <button id="action" class="btn primary">Start sound</button>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="stage">
+    <svg id="panel" viewBox="14 14 1772 850" role="group" aria-label="L-wave front panel"></svg>
+    <div class="overlay" id="overlay"><button class="btn primary" id="overlay-start">Start sound</button></div>
+  </div>
+
+  <div class="lower">
+    <section class="card" aria-labelledby="h-console">
+      <h2 id="h-console">Serial console</h2>
+      <pre id="log" aria-live="polite"></pre>
+      <form class="cmdrow" id="cmdform" autocomplete="off">
+        <input type="text" id="cmd" placeholder="help, info, set vel_range_db 12 …" aria-label="Console command">
+        <button class="btn" type="submit">Send</button>
+      </form>
+      <div class="quick" id="quick">
+        <button type="button" data-cmd="help">help</button>
+        <button type="button" data-cmd="info">info</button>
+        <button type="button" data-cmd="get">get</button>
+        <button type="button" data-cmd="s">s (stats)</button>
+        <button type="button" data-cmd="k">k (keys)</button>
+        <button type="button" data-cmd="debug off">debug off</button>
+        <button type="button" data-cmd="clear">clear</button>
+      </div>
+    </section>
+
+    <div class="side">
+      <section class="card" aria-labelledby="h-inspect">
+        <h2 id="h-inspect">Inspector</h2>
+        <div id="inspect"><p class="hint">Click a key, dial, slider or switch to see what the firmware reads from it.</p></div>
+      </section>
+      <section class="card" id="simbox" aria-labelledby="h-sim">
+        <h2 id="h-sim">Playing</h2>
+        <div class="field"><label for="strike">Strike</label><input type="range" id="strike" min="0" max="1" step="0.01" value="0.75"><output id="strike-out"></output></div>
+        <div class="field"><label for="battery">Battery</label><input type="range" id="battery" min="3.0" max="4.2" step="0.01" value="3.9"><output id="battery-out"></output></div>
+        <label class="check"><input type="checkbox" id="lineout"> Line-out cable plugged in</label>
+        <p class="hint" style="margin-top:10px">Computer keys play rows B–E: <kbd>2</kbd>–<kbd>9</kbd>, <kbd>Q</kbd>–<kbd>O</kbd>, <kbd>A</kbd>–<kbd>K</kbd>, <kbd>Z</kbd>–<kbd>M</kbd>. Hold <kbd>Shift</kbd> to strike softly. Drag dials and sliders up or down (with <kbd>Shift</kbd> for fine steps); double-click resets. Click a switch to step it.</p>
+        <div class="cmdrow"><button class="btn" id="midi" type="button">Use MIDI keyboard</button><button class="btn" id="reset" type="button">Reset panel</button></div>
+      </section>
+      <section class="card" id="monbox" hidden aria-labelledby="h-mon">
+        <h2 id="h-mon">Connection</h2>
+        <p class="hint" id="mon-hint">Plug the synth into USB, then connect. The page asks the firmware for its monitor stream (command <kbd>m</kbd>) and shows the panel exactly as the synth reads it: knob positions after calibration and smoothing, key travel, notes, switches and LEDs.</p>
+        <div class="cmdrow">
+          <button class="btn" id="connect" type="button">Connect synth (USB)</button>
+          <button class="btn" id="loopback" type="button">Use the simulator as the source</button>
+        </div>
+        <label class="check"><input type="checkbox" id="showmon"> Show raw MON lines in the console</label>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>__LWAVE_SIMCORE__</script>
+<script>
+'use strict';
+const WASM_B64 = "__LWAVE_WASM_BASE64__";
+
+// ---------------------------------------------------------------------------
+// Panel description (positions follow the L-wave V1.0 panel drawing)
+// ---------------------------------------------------------------------------
+const SEC = { lfo: 'var(--lfo)', env: 'var(--env)', fx: 'var(--fx)', flt: 'var(--flt)', osc: 'var(--osc)', mst: 'var(--mst)' };
+// Index order = firmware Pot enum.
+const POTS = [
+  { name: 'LFO frequency', ref: 'RR20', num: 3, x: 812, y: 98, sec: 'lfo', unit: 's', src: 'U105 · ch 15 · pin 41', def: 0.667 },
+  { name: 'LFO delay', ref: 'RR21', num: 4, x: 927, y: 98, sec: 'lfo', unit: 's', src: 'U105 · ch 14 · pin 41', def: 0 },
+  { name: 'LFO strength', ref: 'RR22', num: 5, x: 1042, y: 98, sec: 'lfo', unit: '%', src: 'U105 · ch 13 · pin 41', def: 0 },
+  { name: 'Velocity', ref: 'RR31', num: 6, x: 1202, y: 98, sec: 'env', unit: '%', src: 'U105 · ch 12 · pin 41', def: 0.5 },
+  { name: 'Attack', ref: 'RR23', num: 7, x: 1317, y: 98, sec: 'env', unit: 's', src: 'U105 · ch 11 · pin 41', def: 0 },
+  { name: 'Decay', ref: 'RR24', num: 8, x: 1432, y: 98, sec: 'env', unit: 's', src: 'U105 · ch 10 · pin 41', def: 0.466 },
+  { name: 'Sustain', ref: 'RR25', num: 9, x: 1547, y: 98, sec: 'env', unit: '%', src: 'U105 · ch 9 · pin 41', def: 0.7 },
+  { name: 'Release', ref: 'RR26', num: 10, x: 1662, y: 98, sec: 'env', unit: 's', src: 'U105 · ch 8 · pin 41', def: 0.392 },
+  { name: 'Reverb time', ref: 'RR38', num: 11, x: 121, y: 227, sec: 'fx', unit: 's', src: 'U104 · ch 2 · pin 22', def: 0.55 },
+  { name: 'Reverb mix', ref: 'RR32', num: 12, x: 236, y: 227, sec: 'fx', unit: '%', src: 'U104 · ch 1 · pin 22', def: 0.5 },
+  { name: 'Delay time', ref: 'RR27', num: 13, x: 351, y: 227, sec: 'fx', unit: 's', src: 'U105 · ch 3 · pin 41', def: 0.58 },
+  { name: 'Delay feedback', ref: 'RR28', num: 14, x: 466, y: 227, sec: 'fx', unit: '%', src: 'U105 · ch 2 · pin 41', def: 0.35 },
+  { name: 'Delay mix', ref: 'RR30', num: 15, x: 581, y: 227, sec: 'fx', unit: '%', src: 'U105 · ch 1 · pin 41', def: 0 },
+  { name: 'Filter frequency', ref: 'RR33', num: 18, x: 236, y: 356, sec: 'flt', unit: 'Hz', src: 'U104 · ch 0 · pin 22', def: 0.72 },
+  { name: 'Filter envelope', ref: 'RR35', num: 19, x: 351, y: 356, sec: 'flt', unit: '%', src: 'U104 · ch 15 · pin 22', def: 0.3 },
+  { name: 'Key tracking', ref: 'RR36', num: 20, x: 466, y: 356, sec: 'flt', unit: '%', src: 'U105 · ch 4 · pin 41', def: 0.5 },
+  { name: 'Filter resonance', ref: 'RR34', num: 21, x: 581, y: 356, sec: 'flt', unit: 'Q', src: 'U105 · ch 5 · pin 41', def: 0.55 },
+  { name: 'Overdrive', ref: 'RR19', num: 22, x: 121, y: 485, sec: 'mst', unit: '%', src: 'U104 · ch 4 · pin 22', def: 0 },
+  { name: 'Master tune', ref: 'RR29', num: 23, x: 236, y: 485, sec: 'mst', unit: 'c', src: 'U104 · ch 7 · pin 22', def: 0.5 },
+  { name: 'Bitcrusher', ref: 'RR40', num: 24, x: 351, y: 485, sec: 'mst', unit: '%', src: 'U104 · ch 10 · pin 22', def: 0 },
+  { name: 'Square PWM', ref: 'RR39', num: 25, x: 466, y: 485, sec: 'osc', unit: '%', src: 'U105 · ch 6 · pin 41', def: 0.5 },
+  { name: 'Detune', ref: 'RR37', num: 26, x: 581, y: 485, sec: 'osc', unit: 'c', src: 'U105 · ch 7 · pin 41', def: 0.6 },
+  { name: 'Volume', ref: 'LR12', num: 27, x: 121, slider: true, sec: 'mst', unit: 'dB', src: 'U104 · ch 5 · pin 22', def: 0.82 },
+  { name: 'Pink', ref: 'LR13', num: 28, x: 186, slider: true, sec: 'osc', unit: 'dB', src: 'U104 · ch 6 · pin 22', def: 0 },
+  { name: 'Square', ref: 'LR8', num: 29, x: 252, slider: true, sec: 'osc', unit: 'dB', src: 'U104 · ch 8 · pin 22', def: 0.55 },
+  { name: 'Saw', ref: 'LR9', num: 30, x: 318, slider: true, sec: 'osc', unit: 'dB', src: 'U104 · ch 9 · pin 22', def: 0.75 },
+  { name: 'Tri', ref: 'LR10', num: 31, x: 384, slider: true, sec: 'osc', unit: 'dB', src: 'U104 · ch 11 · pin 22', def: 0 },
+  { name: 'Sine', ref: 'LR11', num: 32, x: 450, slider: true, sec: 'osc', unit: 'dB', src: 'U104 · ch 12 · pin 22', def: 0 },
+  { name: 'Sub 1', ref: 'LR6', num: 33, x: 516, slider: true, sec: 'osc', unit: 'dB', src: 'U104 · ch 13 · pin 22', def: 0.45 },
+  { name: 'Sub 2', ref: 'LR7', num: 34, x: 581, slider: true, sec: 'osc', unit: 'dB', src: 'U104 · ch 14 · pin 22', def: 0 },
+];
+// Index order = firmware Switch enum.
+const SWITCHES = [
+  { name: 'LFO destination', ref: 'SW4', num: 1, x: 582, y: 98, sec: 'lfo', src: 'pin 25 (A11), direct', def: 6,
+    opts: ['Bitcrush', 'Delay', 'Detune', 'PWM', 'Filter freq', 'Vol & pitch', 'Pitch', 'Volume'] },
+  { name: 'LFO waveform', ref: 'SW3', num: 2, x: 697, y: 98, sec: 'lfo', src: 'U105 · ch 0 · pin 41', def: 7,
+    opts: ['Rise linear', 'Sink linear', 'Start high', 'Start low', 'Square', 'Saw', 'Triangle', 'Sine'] },
+  { name: 'Octave', ref: 'SW2', num: 16, x: 697, y: 227, sec: 'mst', src: 'pin 26 (A12), direct', def: 3,
+    opts: ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'] },
+  { name: 'Filter type', ref: 'SW6', num: 17, x: 121, y: 356, sec: 'flt', src: 'U104 · ch 3 · pin 22', def: 5,
+    opts: ['Comb', 'Formant', 'Notch', 'BP', 'HP', 'LP12', 'LP24', 'Off'] },
+];
+// Index order = firmware kKeys: [net name, mux, channel, MIDI note at octave 4]
+const KEYS = [
+  ['A1', 'U101', 1, 65], ['A2', 'U101', 12, 69], ['A3', 'U101', 13, 73], ['A4', 'U101', 14, 77], ['A5', 'U101', 15, 81],
+  ['A6', 'U101', 11, 85], ['A7', 'U101', 10, 89],
+  ['B1', 'U101', 2, 58], ['B2', 'U101', 0, 62], ['B3', 'U101', 5, 66], ['B4', 'U101', 4, 70], ['B5', 'U101', 3, 74],
+  ['B6', 'U101', 6, 78], ['B7', 'U101', 7, 82], ['B8', 'U101', 9, 86],
+  ['C1', 'U102', 15, 51], ['C2', 'U102', 14, 55], ['C3', 'U102', 13, 59], ['C4', 'U102', 11, 63], ['C5', 'U102', 12, 67],
+  ['C6', 'U102', 10, 71], ['C7', 'U102', 9, 75], ['C8', 'U102', 8, 79], ['C9', 'U101', 8, 83],
+  ['D1', 'U103', 14, 44], ['D2', 'U102', 1, 48], ['D3', 'U102', 0, 52], ['D4', 'U102', 5, 56], ['D5', 'U102', 6, 60],
+  ['D6', 'U102', 7, 64], ['D7', 'U102', 4, 68], ['D8', 'U102', 3, 72], ['D9', 'U102', 2, 76],
+  ['E1', 'U103', 15, 41], ['E2', 'U103', 0, 45], ['E3', 'U103', 13, 49], ['E4', 'U103', 11, 53], ['E5', 'U103', 12, 57],
+  ['E6', 'U103', 10, 61], ['E7', 'U103', 9, 65], ['E8', 'U103', 8, 69],
+  ['F1', 'U103', 2, 38], ['F2', 'U103', 1, 42], ['F3', 'U103', 6, 46], ['F4', 'U103', 7, 50], ['F5', 'U103', 5, 54],
+  ['F6', 'U103', 4, 58], ['F7', 'U103', 3, 62],
+];
+const ROW = { A: [276, 886], B: [376, 828], C: [476, 771], D: [576, 713], E: [676, 771], F: [776, 828] };
+const KEY_PITCH = 115.4, HEX_R = 63;
+const MUX_PIN = { U101: 14, U102: 16, U103: 17, U104: 22, U105: 41 };
+const LED_X = [263, 288, 312, 337, 362, 387, 411, 436, 494];
+const LED_ON = ['#4fc25b', '#4fc25b', '#4fc25b', '#4fc25b', '#4fc25b', '#f2c62e', '#f2c62e', '#e8473b', '#e8473b'];
+// Computer keyboard → key net name (rows B–E, physical positions).
+const KBD = {};
+'Digit2 Digit3 Digit4 Digit5 Digit6 Digit7 Digit8 Digit9'.split(' ').forEach((c, i) => KBD[c] = 'B' + (i + 1));
+'KeyQ KeyW KeyE KeyR KeyT KeyY KeyU KeyI KeyO'.split(' ').forEach((c, i) => KBD[c] = 'C' + (i + 1));
+'KeyA KeyS KeyD KeyF KeyG KeyH KeyJ KeyK'.split(' ').forEach((c, i) => KBD[c] = 'D' + (i + 2));
+'KeyZ KeyX KeyC KeyV KeyB KeyN KeyM'.split(' ').forEach((c, i) => KBD[c] = 'E' + (i + 2));
+const KEY_LABEL = {};
+for (const [code, name] of Object.entries(KBD)) KEY_LABEL[name] = code.replace('Digit', '').replace('Key', '');
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const noteName = (n) => NOTE_NAMES[((n % 12) + 12) % 12] + (Math.floor(n / 12) - 1);
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const view = {
+  pot: POTS.map((p) => p.def), sw: SWITCHES.map((s) => s.def),
+  travel: new Array(48).fill(0), on: new Array(48).fill(0), leds: new Array(9).fill(0),
+  raw: null, stats: {}, octave: 0,
+};
+let mode = 'sim';              // 'sim' | 'mon'
+let monSource = null;          // null | 'serial' | 'loopback'
+let audio = null;              // { ctx, send(msg) }
+let selected = null;           // { kind: 'pot'|'sw'|'key', i }
+const SimCore = simCoreFactory();
+const wasmBytes = Uint8Array.from(atob(WASM_B64), (c) => c.charCodeAt(0));
+let wasmModule = null;  // compiled at start-up (async: browsers limit synchronous compiles on the main thread)
+let labels = null;      // main-thread instance: the firmware's knob curves for the value labels
+let detuneCopies = 2;   // follows 'set detune_copies' typed in the console (1 = the detune knob drives the chorus)
+
+const $ = (id) => document.getElementById(id);
+function storageGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function storageSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* not available */ } }
+const saved = storageGet('lwave-sim-panel');
+if (saved && Array.isArray(saved.pot) && saved.pot.length === 30 && Array.isArray(saved.sw)) {
+  view.pot = saved.pot.map(Number); view.sw = saved.sw.map(Number);
+}
+
+// ---------------------------------------------------------------------------
+// Value formatting (engine units from the firmware's own curves)
+// ---------------------------------------------------------------------------
+function fmtValue(i, pos) {
+  const p = POTS[i];
+  if (p.name === 'Detune' && detuneCopies === 1) return 'chorus ' + (pos * 100).toFixed(0) + ' %';
+  const v = labels.mapValue(i, pos);
+  switch (p.unit) {
+    case 's': return v === 0 ? '0 ms' : v < 1 ? (v * 1000).toFixed(v < 0.1 ? 1 : 0) + ' ms' : v.toFixed(v < 10 ? 2 : 1) + ' s';
+    case 'Hz': return v < 1000 ? v.toFixed(0) + ' Hz' : (v / 1000).toFixed(v < 10000 ? 2 : 1) + ' kHz';
+    case 'Q': return 'Q ' + v.toFixed(v < 1 ? 2 : 1);
+    case 'c': return (p.name === 'Master tune' && v > 0 ? '+' : '') + v.toFixed(1) + ' c';
+    case 'dB': return v <= -119 ? '−∞ dB' : (v > 0 ? '+' : '') + v.toFixed(1) + ' dB';
+    default: return (v * 100).toFixed(0) + ' %';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Drawing the panel
+// ---------------------------------------------------------------------------
+const NS = 'http://www.w3.org/2000/svg';
+const svg = $('panel');
+// Paint and font values that use CSS variables go through style; SVG attributes cannot hold var().
+const STYLE_PROPS = new Set(['fill', 'stroke', 'font-family']);
+function paint(e, prop, v) { e.style.setProperty(prop, v); }
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (STYLE_PROPS.has(k)) paint(e, k, v); else e.setAttribute(k, v);
+  }
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function text(parent, x, y, str, attrs) {
+  const t = el('text', Object.assign({ x, y, 'text-anchor': 'middle', fill: 'var(--ink)', 'font-family': 'var(--font-ui)' }, attrs || {}), parent);
+  t.textContent = str;
+  return t;
+}
+const ARC0 = -135, ARC1 = 135;
+const polar = (cx, cy, r, deg) => [cx + r * Math.sin(deg * Math.PI / 180), cy - r * Math.cos(deg * Math.PI / 180)];
+function arcPath(cx, cy, r, a0, a1) {
+  const [x0, y0] = polar(cx, cy, r, a0), [x1, y1] = polar(cx, cy, r, a1);
+  return `M${x0.toFixed(1)} ${y0.toFixed(1)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+}
+
+const ui = { pots: [], sws: [], keys: [], leds: [] };
+
+function buildPanel() {
+  el('rect', { x: 22, y: 22, width: 1756, height: 833, rx: 18, fill: 'var(--panel)', stroke: 'var(--panel-edge)', 'stroke-width': 3 }, svg);
+  for (const [label, x, y] of [['USB', 170, 44], ['Line out', 59, 90], ['Phones', 55, 740]]) {
+    const w = label.length * 8.6 + 14;
+    el('rect', { x: x - w / 2, y: y - 11, width: w, height: 22, rx: 5, fill: 'var(--panel-edge)' }, svg);
+    text(svg, x, y + 5, label, { fill: 'var(--panel)', 'font-size': 13, 'font-weight': 600 });
+  }
+  // LEDs
+  LED_X.forEach((x, i) => {
+    text(svg, x, 108, String(i), { fill: 'var(--ink-2)', 'font-size': 12 });
+    const glow = el('circle', { cx: x, cy: 123, r: 15, fill: LED_ON[i], opacity: 0 }, svg);
+    const c = el('circle', { cx: x, cy: 123, r: 9, fill: 'var(--led-off)', stroke: 'var(--led-off-stroke)', 'stroke-width': 1.5 }, svg);
+    ui.leds.push({ c, glow });
+  });
+  text(svg, 378, 152, 'Volume meter 0–7 · battery 8', { fill: 'var(--ink-2)', 'font-size': 13 });
+
+  POTS.forEach((p, i) => (p.slider ? buildSlider : buildDial)(p, i));
+  SWITCHES.forEach(buildSwitch);
+  KEYS.forEach(buildKey);
+}
+
+function buildDial(p, i) {
+  const g = el('g', { class: 'ctl', tabindex: 0, role: 'slider', 'aria-label': p.name, 'aria-valuemin': 0, 'aria-valuemax': 100 }, svg);
+  el('circle', { cx: p.x, cy: p.y, r: 44, fill: 'transparent', class: 'selring', stroke: 'none' }, g);
+  el('path', { d: arcPath(p.x, p.y, 40, ARC0, ARC1), fill: 'none', stroke: 'var(--hex-stroke)', 'stroke-width': 3, 'stroke-linecap': 'round', opacity: 0.6 }, g);
+  const arc = el('path', { fill: 'none', stroke: SEC[p.sec], 'stroke-width': 4, 'stroke-linecap': 'round' }, g);
+  el('circle', { cx: p.x, cy: p.y, r: 32, fill: SEC[p.sec], stroke: 'var(--panel-edge)', 'stroke-width': 2, class: 'focusring' }, g);
+  text(g, p.x, p.y + 7, String(p.num), { fill: '#fff', 'font-size': 20, 'font-weight': 700 });
+  const dot = el('circle', { r: 4.5, fill: '#fff' }, g);
+  text(g, p.x, p.y + 61, p.name, { 'font-size': 14 });
+  const val = text(g, p.x, p.y + 78, '', { fill: 'var(--ink-2)', 'font-size': 12.5, 'font-family': 'var(--font-mono)' });
+  ui.pots[i] = { g, arc, dot, val, kind: 'dial' };
+  bindPot(g, i, 220);
+}
+
+function buildSlider(p, i) {
+  const top = 618, bot = 778;
+  const g = el('g', { class: 'ctl', tabindex: 0, role: 'slider', 'aria-label': p.name, 'aria-valuemin': 0, 'aria-valuemax': 100 }, svg);
+  text(g, p.x, 600, p.name, { 'font-size': 14 });
+  el('rect', { x: p.x - 30, y: top - 14, width: 60, height: bot - top + 28, fill: 'transparent', class: 'selring', stroke: 'none', rx: 8 }, g);
+  el('rect', { x: p.x - 5, y: top, width: 10, height: bot - top, rx: 5, fill: 'var(--ink-2)', opacity: 0.85 }, g);
+  const cap = el('g', {}, g);
+  el('rect', { x: p.x - 23, y: -14, width: 46, height: 28, rx: 4, fill: SEC[p.sec], stroke: 'var(--panel-edge)', 'stroke-width': 1.5, class: 'focusring' }, cap);
+  text(cap, p.x, 6, String(p.num), { fill: '#fff', 'font-size': 15, 'font-weight': 700 });
+  const val = text(g, p.x, 800, '', { fill: 'var(--ink-2)', 'font-size': 11.5, 'font-family': 'var(--font-mono)' });
+  ui.pots[i] = { g, cap, val, kind: 'slider', top, bot };
+  bindPot(g, i, bot - top);
+}
+
+function buildSwitch(s, i) {
+  const g = el('g', { class: 'ctl', tabindex: 0, role: 'slider', 'aria-label': s.name, 'aria-valuemin': 1, 'aria-valuemax': 8 }, svg);
+  el('circle', { cx: s.x, cy: s.y, r: 50, fill: 'transparent', class: 'selring', stroke: 'none' }, g);
+  el('circle', { cx: s.x, cy: s.y, r: 42, fill: 'none', stroke: SEC[s.sec], 'stroke-width': 1.5, 'stroke-dasharray': '2 3' }, g);
+  const ticks = [];
+  for (let k = 0; k < 8; k++) {
+    const a = ARC0 + (ARC1 - ARC0) * k / 7;
+    const [x0, y0] = polar(s.x, s.y, 45, a), [x1, y1] = polar(s.x, s.y, 52, a);
+    ticks.push(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: 'var(--ink-2)', 'stroke-width': 2, 'stroke-linecap': 'round' }, g));
+  }
+  el('circle', { cx: s.x, cy: s.y, r: 32, fill: SEC[s.sec], stroke: 'var(--panel-edge)', 'stroke-width': 2, class: 'focusring' }, g);
+  text(g, s.x, s.y + 7, String(s.num), { fill: '#fff', 'font-size': 20, 'font-weight': 700 });
+  const dot = el('circle', { r: 4.5, fill: '#fff' }, g);
+  text(g, s.x, s.y + 61, s.name, { 'font-size': 14 });
+  const val = text(g, s.x, s.y + 78, '', { fill: 'var(--ink-2)', 'font-size': 12.5, 'font-family': 'var(--font-mono)' });
+  ui.sws[i] = { g, ticks, dot, val };
+  bindSwitch(g, i);
+}
+
+function buildKey(k, i) {
+  const [name] = k;
+  const row = name[0], col = parseInt(name.slice(1), 10) - 1;
+  const [y, x0] = ROW[row];
+  const x = x0 + col * KEY_PITCH;
+  const pts = [];
+  for (let v = 0; v < 6; v++) {
+    const a = (60 * v - 90) * Math.PI / 180;
+    pts.push((x + HEX_R * Math.cos(a)).toFixed(1) + ',' + (y + HEX_R * Math.sin(a)).toFixed(1));
+  }
+  const g = el('g', { class: 'key', role: 'button', 'aria-label': 'Key ' + name }, svg);
+  const base = el('polygon', { points: pts.join(' '), fill: k[3] % 12 === 0 ? 'var(--hex-c)' : 'var(--hex)', stroke: 'var(--hex-stroke)', 'stroke-width': 1.5 }, g);
+  const fillp = el('polygon', { points: pts.join(' '), fill: 'var(--hot)', opacity: 0 }, g);
+  const ring = el('polygon', { points: pts.join(' '), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 0 }, g);
+  const sel = el('polygon', { points: pts.join(' '), fill: 'none', class: 'selring', stroke: 'none' }, g);
+  const note = text(g, x, y + 2, '', { 'font-size': 19, 'font-weight': 700 });
+  text(g, x, y + 28, name, { fill: 'var(--ink-2)', 'font-size': 11.5 });
+  const kb = KEY_LABEL[name] ? text(g, x, y - 32, KEY_LABEL[name], { fill: 'var(--ink-2)', 'font-size': 11, 'font-family': 'var(--font-mono)', opacity: 0.8 }) : null;
+  ui.keys[i] = { g, base, fillp, ring, sel, note, kb, x, y, isC: k[3] % 12 === 0 };
+  bindKey(g, i);
+}
+
+// ---------------------------------------------------------------------------
+// Rendering state into the panel
+// ---------------------------------------------------------------------------
+function renderPanel() {
+  POTS.forEach((p, i) => {
+    const u = ui.pots[i], pos = view.pot[i];
+    if (u.kind === 'dial') {
+      const a = ARC0 + (ARC1 - ARC0) * pos;
+      u.arc.setAttribute('d', pos > 0.004 ? arcPath(p.x, p.y, 40, ARC0, a) : '');
+      const [dx, dy] = polar(p.x, p.y, 23, a);
+      u.dot.setAttribute('cx', dx.toFixed(1)); u.dot.setAttribute('cy', dy.toFixed(1));
+    } else {
+      u.cap.setAttribute('transform', `translate(0 ${(u.bot - (u.bot - u.top) * pos).toFixed(1)})`);
+    }
+    u.val.textContent = fmtValue(i, pos);
+    u.g.setAttribute('aria-valuenow', Math.round(pos * 100));
+    u.g.setAttribute('aria-valuetext', u.val.textContent);
+    u.g.classList.toggle('sel', !!selected && selected.kind === 'pot' && selected.i === i);
+  });
+  SWITCHES.forEach((s, i) => {
+    const u = ui.sws[i], pos = view.sw[i];
+    const a = ARC0 + (ARC1 - ARC0) * pos / 7;
+    const [dx, dy] = polar(s.x, s.y, 23, a);
+    u.dot.setAttribute('cx', dx.toFixed(1)); u.dot.setAttribute('cy', dy.toFixed(1));
+    u.ticks.forEach((t, k) => { paint(t, 'stroke', k === pos ? SEC[s.sec] : 'var(--ink-2)'); t.setAttribute('stroke-width', k === pos ? 4 : 2); });
+    u.val.textContent = (pos + 1) + ' · ' + s.opts[pos];
+    u.g.setAttribute('aria-valuenow', pos + 1);
+    u.g.setAttribute('aria-valuetext', s.opts[pos]);
+    u.g.classList.toggle('sel', !!selected && selected.kind === 'sw' && selected.i === i);
+  });
+  const shift = 12 * (view.sw[2] + 1 - 4);
+  KEYS.forEach((k, i) => {
+    const u = ui.keys[i], t = view.travel[i], on = view.on[i];
+    u.fillp.setAttribute('opacity', (Math.min(1, t) * (on ? 0.85 : 0.45)).toFixed(2));
+    u.ring.setAttribute('stroke-width', on ? 5 : 0);
+    const n = k[3] + shift;
+    u.note.textContent = noteName(n);
+    paint(u.base, 'fill', n % 12 === 0 ? 'var(--hex-c)' : 'var(--hex)');
+    if (u.kb) u.kb.style.display = mode === 'sim' ? '' : 'none';
+    u.g.classList.toggle('sel', !!selected && selected.kind === 'key' && selected.i === i);
+  });
+  ui.leds.forEach((l, i) => {
+    const on = !!view.leds[i];
+    paint(l.c, 'fill', on ? LED_ON[i] : 'var(--led-off)');
+    paint(l.c, 'stroke', on ? LED_ON[i] : 'var(--led-off-stroke)');
+    l.glow.setAttribute('opacity', on ? 0.35 : 0);
+  });
+  renderInspector();
+  renderChips();
+}
+let renderQueued = false;
+function requestRender() { if (!renderQueued) { renderQueued = true; requestAnimationFrame(() => { renderQueued = false; renderPanel(); }); } }
+
+function renderChips() {
+  const s = view.stats, c = [];
+  if (mode === 'sim') {
+    c.push(`<span class="chip ${audio ? 'live' : ''}">sound <b>${audio ? audio.kind : 'off'}</b></span>`);
+    c.push(`<span class="chip">voices <b>${s.voices ?? 0}</b></span>`);
+    c.push(`<span class="chip">out <b>${s.level > -119 ? s.level.toFixed(1) + ' dBFS' : '—'}</b></span>`);
+    if (s.limit > 0.5) c.push(`<span class="chip warn">limiting <b>${s.limit.toFixed(1)} dB</b></span>`);
+    c.push(`<span class="chip">mode <b>${['normal', 'calibration', 'debug'][s.mode ?? 0]}</b></span>`);
+  } else {
+    c.push(`<span class="chip ${monSource ? 'live' : ''}">source <b>${monSource === 'serial' ? 'USB' : monSource === 'loopback' ? 'simulator' : 'none'}</b></span>`);
+    if (s.scan !== undefined) {
+      c.push(`<span class="chip">scan <b>${s.scan} Hz</b></span>`);
+      c.push(`<span class="chip">cpu <b>${s.cpu < 0 ? 'n/a' : s.cpu + ' %'}</b></span>`);
+      c.push(`<span class="chip">voices <b>${s.v}</b></span>`);
+      c.push(`<span class="chip">out <b>${s.lvl} dBFS</b></span>`);
+      c.push(`<span class="chip ${view.leds[8] ? 'warn' : ''}">battery <b>${s.bat} V</b></span>`);
+      c.push(`<span class="chip">line out <b>${s.lo === '1' ? 'plugged' : 'free'}</b></span>`);
+      c.push(`<span class="chip">updates <b>${s.rate ?? 0}/s</b></span>`);
+    }
+  }
+  $('chips').innerHTML = c.join('');
+}
+
+function renderInspector() {
+  const box = $('inspect');
+  if (!selected) { box.innerHTML = '<p class="hint">Click a key, dial, slider or switch to see what the firmware reads from it.</p>'; return; }
+  const raw = view.raw, rows = [];
+  const hex3 = (v) => v === undefined ? '—' : v + ' counts';
+  if (selected.kind === 'pot') {
+    const p = POTS[selected.i], pos = view.pot[selected.i];
+    rows.push(['Control', `${p.num} · ${p.name} (${p.ref})`], ['Wired to', p.src]);
+    if (raw) rows.push(['Raw ADC', hex3(raw.pots[selected.i])]);
+    rows.push(['Position', (pos * 100).toFixed(1) + ' % (after calibration and smoothing)'], ['Engine value', fmtValue(selected.i, pos)]);
+  } else if (selected.kind === 'sw') {
+    const s = SWITCHES[selected.i], pos = view.sw[selected.i];
+    rows.push(['Control', `${s.num} · ${s.name} (${s.ref})`], ['Wired to', s.src]);
+    if (raw) rows.push(['Raw ADC', hex3(raw.sws[selected.i]) + ` (nominal ${Math.round(4095 * (7 - pos) / 7)})`]);
+    rows.push(['Position', `${pos + 1} of 8`], ['Meaning', s.opts[pos]]);
+  } else {
+    const k = KEYS[selected.i], shift = 12 * (view.sw[2] + 1 - 4);
+    rows.push(['Key', `${k[0]} · plays ${noteName(k[3] + shift)} (MIDI ${k[3] + shift})`], ['Wired to', `${k[1]} · ch ${k[2]} · pin ${MUX_PIN[k[1]]}`]);
+    if (raw) rows.push(['Raw ADC', hex3(raw.keys[selected.i])]);
+    rows.push(['Travel', (view.travel[selected.i] * 100).toFixed(0) + ' %'], ['Note', view.on[selected.i] ? 'on' : 'off']);
+  }
+  if (raw && mode === 'mon') rows.push(['Battery ADC', hex3(raw.bat)]);
+  box.innerHTML = '<dl class="kv">' + rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('') + '</dl>';
+}
+
+// ---------------------------------------------------------------------------
+// Interaction
+// ---------------------------------------------------------------------------
+const readOnly = () => mode === 'mon' && monSource !== 'loopback';
+function setPot(i, v) {
+  v = Math.max(0, Math.min(1, v));
+  view.pot[i] = v;
+  send({ t: 'pot', i, v });
+  persist();
+  requestRender();
+}
+function setSwitch(i, p) {
+  view.sw[i] = ((p % 8) + 8) % 8;
+  send({ t: 'sw', i, p: view.sw[i] });
+  persist();
+  requestRender();
+}
+let persistTimer = 0;
+function persist() { clearTimeout(persistTimer); persistTimer = setTimeout(() => storageSet('lwave-sim-panel', { pot: view.pot, sw: view.sw }), 300); }
+
+function bindPot(g, i, travelPx) {
+  let start = null;
+  g.addEventListener('pointerdown', (e) => {
+    selected = { kind: 'pot', i }; requestRender();
+    if (readOnly()) return;
+    try { g.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
+    start = { y: e.clientY, v: view.pot[i], scale: svg.viewBox.baseVal.height / svg.getBoundingClientRect().height };
+    e.preventDefault();
+  });
+  g.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const dy = (e.clientY - start.y) * start.scale;
+    setPot(i, start.v - dy / travelPx * (e.shiftKey ? 0.2 : 1));
+  });
+  const end = () => { start = null; };
+  g.addEventListener('pointerup', end);
+  g.addEventListener('pointercancel', end);
+  g.addEventListener('dblclick', () => { if (!readOnly()) setPot(i, POTS[i].def); });
+  g.addEventListener('wheel', (e) => { if (readOnly()) return; e.preventDefault(); setPot(i, view.pot[i] - Math.sign(e.deltaY) * (e.shiftKey ? 0.002 : 0.01)); }, { passive: false });
+  g.addEventListener('keydown', (e) => {
+    const step = { ArrowUp: 0.01, ArrowRight: 0.01, ArrowDown: -0.01, ArrowLeft: -0.01, PageUp: 0.1, PageDown: -0.1 }[e.key];
+    if (step === undefined || readOnly()) return;
+    e.preventDefault(); e.stopPropagation();
+    setPot(i, view.pot[i] + step);
+  });
+  g.addEventListener('focus', () => { selected = { kind: 'pot', i }; requestRender(); });
+}
+
+function bindSwitch(g, i) {
+  g.addEventListener('pointerdown', (e) => {
+    selected = { kind: 'sw', i };
+    if (!readOnly()) setSwitch(i, view.sw[i] + (e.shiftKey ? -1 : 1));
+    else requestRender();
+    e.preventDefault();
+  });
+  g.addEventListener('wheel', (e) => { if (readOnly()) return; e.preventDefault(); setSwitch(i, view.sw[i] - Math.sign(e.deltaY)); }, { passive: false });
+  g.addEventListener('keydown', (e) => {
+    const step = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+    if (step === undefined || readOnly()) return;
+    e.preventDefault(); e.stopPropagation();
+    setSwitch(i, Math.max(0, Math.min(7, view.sw[i] + step)));
+  });
+  g.addEventListener('focus', () => { selected = { kind: 'sw', i }; requestRender(); });
+}
+
+const pointerKeys = new Map();
+function pressKey(i, soft) {
+  if (readOnly()) return;
+  if (!audio) startAudio();
+  const v = soft ? 0.25 : Number($('strike').value);
+  send({ t: 'key', k: i, down: true, v });
+}
+function releaseKey(i) { if (!readOnly()) send({ t: 'key', k: i, down: false }); }
+function bindKey(g, i) {
+  g.addEventListener('pointerdown', (e) => {
+    selected = { kind: 'key', i }; requestRender();
+    try { g.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
+    pointerKeys.set(e.pointerId, i);
+    pressKey(i, e.shiftKey);
+    e.preventDefault();
+  });
+  const up = (e) => { const k = pointerKeys.get(e.pointerId); if (k !== undefined) { pointerKeys.delete(e.pointerId); releaseKey(k); } };
+  g.addEventListener('pointerup', up);
+  g.addEventListener('pointercancel', up);
+}
+
+const kbdDown = new Set();
+window.addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('input, textarea, select')) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  const name = KBD[e.code];
+  if (!name || mode !== 'sim' && monSource !== 'loopback') return;
+  const i = KEYS.findIndex((k) => k[0] === name);
+  if (i < 0 || kbdDown.has(e.code)) return;
+  kbdDown.add(e.code);
+  pressKey(i, e.shiftKey);
+  e.preventDefault();
+});
+window.addEventListener('keyup', (e) => {
+  if (!kbdDown.has(e.code)) return;
+  kbdDown.delete(e.code);
+  const i = KEYS.findIndex((k) => k[0] === KBD[e.code]);
+  if (i >= 0) releaseKey(i);
+});
+window.addEventListener('blur', () => { for (const code of kbdDown) { const i = KEYS.findIndex((k) => k[0] === KBD[code]); if (i >= 0) releaseKey(i); } kbdDown.clear(); });
+
+// ---------------------------------------------------------------------------
+// Console
+// ---------------------------------------------------------------------------
+const logEl = $('log');
+let logText = '';
+function log(str) {
+  if (!str) return;
+  logText += str.replace(/\r/g, '');
+  if (logText.length > 60000) logText = logText.slice(-50000);
+  const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+  logEl.textContent = logText;
+  if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+}
+function runCommand(cmd) {
+  cmd = cmd.trim();
+  if (!cmd) return;
+  if (cmd === 'clear') { logText = ''; logEl.textContent = ''; return; }
+  const dc = cmd.match(/^set\s+detune_copies\s+(\S+)/);
+  if (dc && isFinite(Number(dc[1]))) detuneCopies = Math.min(3, Math.max(1, Math.round(Number(dc[1]))));
+  if (cmd === 'defaults') detuneCopies = 2;
+  log('> ' + cmd + '\n');
+  if (mode === 'mon' && monSource === 'serial') serialWrite(cmd);
+  else if (audio) send({ t: 'line', s: cmd });
+  else log('Start the sound (or connect the synth) first; the firmware runs once it starts.\n');
+}
+$('cmdform').addEventListener('submit', (e) => { e.preventDefault(); runCommand($('cmd').value); $('cmd').value = ''; });
+$('quick').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) runCommand(b.dataset.cmd); });
+
+// ---------------------------------------------------------------------------
+// Audio: the firmware in an AudioWorklet (fallback: ScriptProcessor)
+// ---------------------------------------------------------------------------
+function workletMain(SimCore) {
+  class LwaveProcessor extends AudioWorkletProcessor {
+    constructor(options) {
+      super();
+      this.core = SimCore.createSync(new WebAssembly.Module(options.processorOptions.bytes));
+      this.core.init(sampleRate);
+      this.blocks = 0;
+      this.port.onmessage = (e) => this.core.handle(e.data);
+    }
+    process(inputs, outputs) {
+      const out = outputs[0];
+      const buf = this.core.render(out[0].length);
+      for (const ch of out) ch.set(buf);
+      if (++this.blocks % 10 === 0) this.port.postMessage({ state: this.core.state(), text: this.core.takeOutput() });
+      return true;
+    }
+  }
+  registerProcessor('lwave', LwaveProcessor);
+}
+
+const pending = [];
+function send(msg) { if (audio) audio.send(msg); else if (msg.t !== 'key') pending.push(msg); }
+function syncPanel() {
+  view.pot.forEach((v, i) => send({ t: 'pot', i, v }));
+  view.sw.forEach((p, i) => send({ t: 'sw', i, p }));
+  send({ t: 'bat', v: Number($('battery').value) });
+  send({ t: 'lo', on: $('lineout').checked });
+}
+function onCoreReport(msg) {
+  const s = msg.state;
+  if (mode === 'sim') { view.travel = s.travel; view.on = s.on; view.leds = s.leds; }
+  if (mode === 'sim') view.stats = { voices: s.voices, level: s.level, limit: s.limit, mode: s.mode };
+  if (msg.text) {
+    if (monSource === 'loopback') feedMonitorText(msg.text);
+    else log(msg.text);
+  }
+  requestRender();
+}
+
+let starting = null;
+async function startAudio() {
+  if (audio) return audio;
+  if (starting) return starting;
+  starting = (async () => {
+    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    await ctx.resume();
+    try {
+      const src = '(' + workletMain.toString() + ')((' + simCoreFactory.toString() + ')());';
+      // A blob URL works on web pages; a page opened from disk (file://) needs a data URL.
+      const urls = [URL.createObjectURL(new Blob([src], { type: 'application/javascript' })),
+        'data:application/javascript;base64,' + btoa(unescape(encodeURIComponent(src)))];
+      let loaded = null;
+      for (const url of urls) {
+        try { await ctx.audioWorklet.addModule(url); loaded = url; break; } catch (e) { loaded = null; }
+      }
+      if (!loaded) throw new Error('the browser refused the worklet module');
+      const node = new AudioWorkletNode(ctx, 'lwave', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { bytes: wasmBytes.buffer.slice(0) } });
+      node.port.onmessage = (e) => onCoreReport(e.data);
+      node.connect(ctx.destination);
+      audio = { ctx, kind: 'worklet', send: (m) => node.port.postMessage(m) };
+    } catch (err) {
+      // Fallback: run the firmware on the main thread.
+      log('Audio worklet unavailable (' + (err && err.message ? err.message : err) + '); running the firmware on the main thread instead.\n');
+      const core = await SimCore.create(wasmModule);
+      core.init(ctx.sampleRate);
+      const node = ctx.createScriptProcessor(1024, 0, 2);
+      let n = 0;
+      node.onaudioprocess = (e) => {
+        const buf = core.render(1024);
+        for (let c = 0; c < e.outputBuffer.numberOfChannels; c++) e.outputBuffer.getChannelData(c).set(buf);
+        if (++n % 2 === 0) onCoreReport({ state: core.state(), text: core.takeOutput() });
+      };
+      node.connect(ctx.destination);
+      audio = { ctx, kind: 'main thread', send: (m) => core.handle(m) };
+    }
+    syncPanel();
+    pending.splice(0).forEach((m) => audio.send(m));
+    $('overlay').hidden = true;
+    updateChrome();
+    return audio;
+  })();
+  try { return await starting; } catch (err) {
+    log('Could not start sound: ' + err.message + '\n');
+    starting = null;
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MIDI keyboard
+// ---------------------------------------------------------------------------
+const midiHeld = new Map();
+$('midi').addEventListener('click', async () => {
+  if (!navigator.requestMIDIAccess) { log('This browser has no Web MIDI. Chrome or Edge, with this file opened from your computer, can use a MIDI keyboard.\n'); return; }
+  try {
+    const access = await navigator.requestMIDIAccess();
+    let count = 0;
+    access.inputs.forEach((input) => { count++; input.onmidimessage = onMidi; });
+    log(count ? `MIDI: listening to ${count} input(s). Notes map to the key that plays that pitch.\n` : 'MIDI: no keyboard found. Plug one in and press the button again.\n');
+    startAudio();
+  } catch (err) {
+    log('MIDI was blocked here (' + err.name + '). Open lwave-sim.html from your Lwave folder in Chrome or Edge to use a MIDI keyboard.\n');
+  }
+});
+function onMidi(e) {
+  const [st, d1, d2] = e.data, cmd = st & 0xf0;
+  if (cmd === 0x90 && d2 > 0) {
+    const shift = 12 * (view.sw[2] + 1 - 4);
+    const i = KEYS.findIndex((k) => k[3] + shift === d1);
+    if (i < 0) return;
+    midiHeld.set(d1, i);
+    send({ t: 'key', k: i, down: true, v: d2 / 127 });
+  } else if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) {
+    const i = midiHeld.get(d1);
+    if (i !== undefined) { midiHeld.delete(d1); releaseKey(i); }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hardware monitor: Web Serial + MON line parser
+// ---------------------------------------------------------------------------
+let serial = null;   // { port, reader, writer }
+let monLines = 0, monRateT = performance.now(), monBuf = '';
+function parseMon(line) {
+  const f = {};
+  for (const tok of line.trim().split(' ').slice(1)) { const eq = tok.indexOf('='); if (eq > 0) f[tok.slice(0, eq)] = tok.slice(eq + 1); }
+  if (!f.k || f.k.length !== 96 || !f.p || f.p.length !== 90 || !f.s || f.s.length !== 4) return false;
+  const hexes = (str, w, n) => Array.from({ length: n }, (_, i) => parseInt(str.substr(i * w, w), 16));
+  view.travel = hexes(f.k, 2, 48).map((v) => v / 255);
+  view.on = (f.n || '').split('').map((c) => (c === '1' ? 1 : 0));
+  view.pot = hexes(f.p, 3, 30).map((v) => v / 4095);
+  view.sw = f.s.split('').map((c) => Math.max(0, Math.min(7, c.charCodeAt(0) - 49)));
+  view.leds = (f.led || '000000000').split('').map((c) => (c === '1' ? 1 : 0));
+  view.raw = {
+    keys: f.rk ? hexes(f.rk, 3, 48) : [], pots: f.rp ? hexes(f.rp, 3, 30) : [],
+    sws: f.rs ? hexes(f.rs, 3, 4) : [], bat: f.rb ? parseInt(f.rb, 16) : undefined,
+  };
+  monLines++;
+  const now = performance.now();
+  if (now - monRateT > 1000) { view.stats.rate = Math.round(monLines * 1000 / (now - monRateT)); monLines = 0; monRateT = now; }
+  Object.assign(view.stats, { v: f.v, lvl: f.lvl, lim: f.lim, cpu: Number(f.cpu), bat: f.bat, lo: f.lo, scan: f.scan, mode: f.mode });
+  return true;
+}
+function feedMonitorText(chunk) {
+  monBuf += chunk;
+  const lines = monBuf.split('\n');
+  monBuf = lines.pop();
+  let other = '';
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, '');
+    if (line.startsWith('MON ')) {
+      parseMon(line);
+      if ($('showmon').checked) other += line + '\n';
+    } else {
+      const md = line.match(/max_delay=([\d.]+)s/);
+      if (md) labels.setLabelMaxDelay(parseFloat(md[1]));
+      other += line + '\n';
+    }
+  }
+  log(other);
+  requestRender();
+}
+window.__lwaveFeed = feedMonitorText;  // used by the automated page test
+
+async function serialWrite(cmd) {
+  if (!serial || !serial.writer) return;
+  try { await serial.writer.write(new TextEncoder().encode(cmd + '\n')); } catch (err) { log('Write failed: ' + err.message + '\n'); }
+}
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    log('This browser has no Web Serial. Use Chrome or Edge, and open lwave-sim.html from your Lwave folder (the copy on claude.ai cannot reach USB).\n');
+    return;
+  }
+  let port;
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+  } catch (err) {
+    log(err.name === 'NotFoundError' ? 'No port chosen.\n' : `Could not open the serial port (${err.name}). Inside claude.ai the browser blocks USB; open lwave-sim.html from your Lwave folder instead.\n`);
+    return;
+  }
+  stopLoopback();
+  serial = { port, writer: port.writable.getWriter(), reader: null };
+  monSource = 'serial';
+  view.stats = {}; monBuf = '';
+  updateChrome();
+  log('Connected. Asking the firmware for its monitor stream…\n');
+  await serialWrite('info');
+  await serialWrite('m');
+  const decoder = new TextDecoder();
+  try {
+    serial.reader = port.readable.getReader();
+    for (;;) {
+      const { value, done } = await serial.reader.read();
+      if (done) break;
+      feedMonitorText(decoder.decode(value, { stream: true }));
+    }
+  } catch (err) {
+    log('Serial connection lost: ' + err.message + '\n');
+  }
+  await disconnectSerial(true);
+}
+async function disconnectSerial(lost) {
+  if (!serial) return;
+  const s = serial;
+  serial = null;
+  if (!lost) { try { await s.writer.write(new TextEncoder().encode('debug off\n')); } catch (e) { /* gone */ } }
+  try { if (s.reader) await s.reader.cancel(); } catch (e) { /* gone */ }
+  try { s.writer.releaseLock(); } catch (e) { /* gone */ }
+  try { await s.port.close(); } catch (e) { /* gone */ }
+  if (monSource === 'serial') monSource = null;
+  log('Disconnected.\n');
+  updateChrome();
+}
+async function startLoopback() {
+  if (serial) await disconnectSerial(false);
+  await startAudio();
+  if (!audio) return;
+  monSource = 'loopback';
+  view.stats = {}; monBuf = '';
+  send({ t: 'line', s: 'info' });
+  send({ t: 'line', s: 'm' });
+  log('Monitoring the simulator through the same MON stream the synth sends. Play it with the mouse or computer keys.\n');
+  updateChrome();
+}
+function stopLoopback() {
+  if (monSource !== 'loopback') return;
+  monSource = null;
+  send({ t: 'line', s: 'debug off' });
+}
+
+// ---------------------------------------------------------------------------
+// Mode switching and chrome
+// ---------------------------------------------------------------------------
+function setMode(m) {
+  if (m === mode) return;
+  if (mode === 'mon') { stopLoopback(); if (serial) disconnectSerial(false); }
+  mode = m;
+  if (mode === 'sim') {
+    const st = storageGet('lwave-sim-panel');
+    if (st && Array.isArray(st.pot)) { view.pot = st.pot.map(Number); view.sw = st.sw.map(Number); }
+    view.raw = null; view.stats = {};
+    if (audio) syncPanel();
+  }
+  updateChrome();
+}
+function updateChrome() {
+  $('tab-sim').setAttribute('aria-selected', mode === 'sim');
+  $('tab-mon').setAttribute('aria-selected', mode === 'mon');
+  $('simbox').hidden = mode !== 'sim';
+  $('monbox').hidden = mode !== 'mon';
+  $('overlay').hidden = mode !== 'sim' || !!audio;
+  svg.classList.toggle('readonly', readOnly());
+  const act = $('action');
+  if (mode === 'sim') {
+    act.textContent = audio ? 'Sound on' : 'Start sound';
+    act.disabled = !!audio;
+    $('banner').innerHTML = audio
+      ? `<strong>Simulator.</strong> The real firmware (controller + engine, compiled to WebAssembly) is running in your browser at ${Math.round(audio.ctx.sampleRate / 100) / 10} kHz.`
+      : '<strong>Simulator.</strong> Start the sound, then play the hex keys with the mouse, touch or your computer keyboard.';
+  } else {
+    act.textContent = monSource === 'serial' ? 'Disconnect' : 'Connect synth';
+    act.disabled = false;
+    $('connect').textContent = monSource === 'serial' ? 'Disconnect' : 'Connect synth (USB)';
+    $('loopback').textContent = monSource === 'loopback' ? 'Stop using the simulator' : 'Use the simulator as the source';
+    $('banner').innerHTML = monSource === 'serial'
+      ? '<strong>Hardware monitor.</strong> Showing the panel exactly as the synth reads it. If a control looks wrong here, the problem is in reading the panel; if it looks right but sounds wrong, it is in the sound engine.'
+      : monSource === 'loopback'
+        ? '<strong>Hardware monitor, simulator source.</strong> The panel below is drawn from the MON stream only, as it would be from the synth.'
+        : '<strong>Hardware monitor.</strong> Connect the synth over USB (Chrome or Edge, with this page opened from your Lwave folder).';
+  }
+  requestRender();
+}
+$('tab-sim').addEventListener('click', () => setMode('sim'));
+$('tab-mon').addEventListener('click', () => setMode('mon'));
+$('action').addEventListener('click', () => {
+  if (mode === 'sim') startAudio();
+  else if (monSource === 'serial') disconnectSerial(false);
+  else connectSerial();
+});
+$('overlay-start').addEventListener('click', () => startAudio());
+$('connect').addEventListener('click', () => (monSource === 'serial' ? disconnectSerial(false) : connectSerial()));
+$('loopback').addEventListener('click', () => (monSource === 'loopback' ? (stopLoopback(), updateChrome()) : startLoopback()));
+$('reset').addEventListener('click', () => {
+  POTS.forEach((p, i) => setPot(i, p.def));
+  SWITCHES.forEach((s, i) => setSwitch(i, s.def));
+});
+function syncOutputs() {
+  $('strike-out').textContent = Math.round(Number($('strike').value) * 100) + ' %';
+  $('battery-out').textContent = Number($('battery').value).toFixed(2) + ' V';
+}
+$('strike').addEventListener('input', syncOutputs);
+$('battery').addEventListener('input', () => { syncOutputs(); send({ t: 'bat', v: Number($('battery').value) }); });
+$('lineout').addEventListener('change', () => send({ t: 'lo', on: $('lineout').checked }));
+
+(async function main() {
+  try {
+    wasmModule = await WebAssembly.compile(wasmBytes);
+    labels = await SimCore.create(wasmModule);
+  } catch (err) {
+    $('banner').textContent = 'This browser could not load the firmware (WebAssembly): ' + err.message;
+    return;
+  }
+  buildPanel();
+  syncOutputs();
+  updateChrome();
+  log('L-wave simulator ready. Start the sound to boot the firmware; its serial output appears here.\n');
+})();
+</script>

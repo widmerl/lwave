@@ -1,0 +1,9 @@
+# PlatformIO
+firmware/.pio/
+firmware/.vscode/
+# Host builds
+build/
+firmware/build/
+# Rendered demo audio (regenerate with lwave_render)
+renders/
+*.wav
