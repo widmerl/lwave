@@ -10,12 +10,14 @@
 //
 // Build: tools/sim/build.sh (clang --target=wasm32-wasi).
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include "lwave/control_mapper.h"
 #include "lwave/controller.h"
 #include "lwave/curves.h"
 #include "lwave/engine.h"
 #include "lwave/hw_map.h"
+#include "lwave/settings.h"
 
 #define SIM_EXPORT(name) extern "C" __attribute__((export_name(#name)))
 
@@ -84,6 +86,8 @@ float gOut[kMaxRender];
 char gLine[128];
 bool gReady = false;
 float gLabelMaxDelay = 20.0f;
+Settings gLabelSettings;  // settings for the labels when this instance is not running the synth
+char gLabel[48];
 
 CalibrationData idealCalibration() {
   CalibrationData c;
@@ -231,8 +235,37 @@ SIM_EXPORT(map_value) float map_value(int pot, float pos) {
   for (float& v : panel.pot) v = 0.0f;
   panel.pot[pot] = pos;
   float maxDelay = gReady ? gEngine.maxDelaySeconds() : gLabelMaxDelay;
-  mapControls(panel, gReady ? gCtl.settings() : Settings(), maxDelay, e);
+  mapControls(panel, gReady ? gCtl.settings() : gLabelSettings, maxDelay, e);
   return potEngineValue(e, static_cast<Pot>(pot));
+}
+
+/// The firmware's own text for pot `pot` at position `pos` (as the 'p' debug view
+/// prints it, e.g. "+25.0 c" or "chorus 60 %"). Returns a NUL-terminated string.
+SIM_EXPORT(format_pot) const char* format_pot(int pot, float pos) {
+  gLabel[0] = 0;
+  if (pot < 0 || pot >= kNumPots) return gLabel;
+  static PanelState panel;
+  static EngineParams e;
+  for (float& v : panel.pot) v = 0.0f;
+  panel.pot[pot] = pos;
+  float maxDelay = gReady ? gEngine.maxDelaySeconds() : gLabelMaxDelay;
+  mapControls(panel, gReady ? gCtl.settings() : gLabelSettings, maxDelay, e);
+  formatPotValue(e, static_cast<Pot>(pot), gLabel, (int)sizeof(gLabel));
+  return gLabel;
+}
+
+/// Applies a console line from sim_line_buffer() to the label settings when it is
+/// "set <name> <value>" or "defaults" (so labels follow settings typed for the synth).
+SIM_EXPORT(label_line) void label_line() {
+  gLine[sizeof(gLine) - 1] = 0;
+  if (strcmp(gLine, "defaults") == 0) { gLabelSettings = Settings(); return; }
+  if (strncmp(gLine, "set ", 4) != 0) return;
+  char name[40];
+  const char* p = gLine + 4;
+  int n = 0;
+  while (*p && *p != ' ' && n < (int)sizeof(name) - 1) name[n++] = *p++;
+  name[n] = 0;
+  if (*p == ' ') setSetting(gLabelSettings, name, (float)atof(p + 1));
 }
 
 /// Longest delay of the connected synth (from its `info`), for map_value() labels in the monitor.

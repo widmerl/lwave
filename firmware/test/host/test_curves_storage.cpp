@@ -24,8 +24,8 @@ TEST(curve_log_to_zero_envelope_and_detune) {
   CHECK_NEAR(timeKnobCurve(1.0f / 3.0f), 0.1, 1e-4);  // 0.1 s tick
   CHECK_NEAR(timeKnobCurve(2.0f / 3.0f), 1.0, 1e-3);  // 1 s tick
   CHECK_NEAR(detuneCurve(0.0f), 0.0, 1e-9);
-  CHECK_NEAR(detuneCurve(0.7f), 10.0, 1e-3);
-  CHECK_NEAR(detuneCurve(1.0f), 30.0, 1e-3);
+  CHECK_NEAR(detuneCurve(0.7f), 1.0 / 3.0, 1e-4);
+  CHECK_NEAR(detuneCurve(1.0f), 1.0, 1e-4);
 }
 
 TEST(curve_level_sliders) {
@@ -132,13 +132,21 @@ TEST(handoff_triple_buffer_and_queue) {
 
 TEST(detune_label_shows_chorus_with_one_copy) {
   EngineParams e;
-  e.detuneCents = 10.0f;
+  e.detuneAmount = 1.0f / 3.0f;  // knob at 70 %
   e.detuneKnob = 0.7f;
   char buf[32];
   e.detuneCopies = 3;
   formatPotValue(e, Pot::Detune, buf, sizeof(buf));
-  CHECK(strcmp(buf, "10.0 c") == 0);
+  CHECK(strcmp(buf, "-7.7 / +12.5 c") == 0);
+  e.detuneCopies = 2;
+  formatPotValue(e, Pot::Detune, buf, sizeof(buf));
+  CHECK(strcmp(buf, "+25.0 c") == 0);
   e.detuneCopies = 1;
   formatPotValue(e, Pot::Detune, buf, sizeof(buf));
   CHECK(strcmp(buf, "chorus 70 %") == 0);
+}
+
+TEST(setting_names_are_unique) {
+  for (int i = 0; i < kNumSettings; ++i)
+    for (int j = i + 1; j < kNumSettings; ++j) CHECK(strcmp(kSettingInfos[i].name, kSettingInfos[j].name) != 0);
 }

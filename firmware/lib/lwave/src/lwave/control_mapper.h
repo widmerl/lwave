@@ -30,12 +30,13 @@ float timeKnobCurve(float p);
 /// Fully logarithmic curve from lo (p = 0) to hi (p = 1).
 float curveLogFull(float p, float lo, float hi);
 
-/// Detune curve: 0 c, 10 c at 70 %, 30 c at CW.
+/// Detune knob curve, 0..1: 0 at CCW, 1/3 at 70 %, 1 at CW (log to 0).
+/// It scales the copy offsets set by detune_low_c, detune_high_c and detune_upper_c.
 float detuneCurve(float p);
 
 /// The engine-unit value pot `pot` drives in `e`: seconds, Hz, cents, Q, 0..1,
-/// or dB for the level sliders and master volume. Detune gives cents, or the
-/// chorus amount 0..1 when detuneCopies = 1.
+/// or dB for the level sliders and master volume. Detune gives the cents of the
+/// highest copy (2 or 3 copies), or the chorus amount 0..1 with 1 copy.
 float potEngineValue(const EngineParams& e, Pot pot);
 
 /// Writes that value with its unit (e.g. "164 ms", "2.91 kHz", "-6.0 dB") into buf.

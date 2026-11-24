@@ -70,6 +70,21 @@ function simCoreFactory() {
     }
     /** Engine-unit value of pot `pot` at position `pos`, with the firmware's curves. */
     mapValue(pot, pos) { return this.x.map_value(pot, pos); }
+    /** The firmware's own text for pot `pot` at position `pos`. */
+    formatPot(pot, pos) {
+      const p = this.x.format_pot(pot, pos), b = new Uint8Array(this.mem(), p, 48);
+      let s = '';
+      for (let i = 0; i < 48 && b[i]; i++) s += String.fromCharCode(b[i]);
+      return s;
+    }
+    /** Lets labels follow a console "set …" or "defaults" line (main-thread instance). */
+    labelLine(text) {
+      const b = new Uint8Array(this.mem(), this.x.sim_line_buffer(), 128);
+      const n = Math.min(text.length, 126);
+      for (let i = 0; i < n; i++) b[i] = text.charCodeAt(i) & 0x7f;
+      b[n] = 0;
+      this.x.label_line();
+    }
     setLabelMaxDelay(s) { this.x.set_label_max_delay(s); }
     keyNote(k) { return this.x.key_note(k); }
   }

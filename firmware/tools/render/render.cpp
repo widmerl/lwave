@@ -100,7 +100,7 @@ std::vector<Scene> scenes() {
   // 1. Tonnetz triads: neighbouring triangles on the key grid.
   {
     Scene s{"01_tonnetz_triads", 9.0f, neutralPanel(), Settings(), {}, nullptr};
-    pot(s.panel, Pot::LevelSquare, 0.6f); pot(s.panel, Pot::Detune, 0.7f);
+    pot(s.panel, Pot::LevelSquare, 0.6f); pot(s.panel, Pot::Detune, 0.57f);  // +15 c
     pot(s.panel, Pot::ReverbMix, 0.6f);
     chord(s, 0.0f, 1.8f, {"D5", "D6", "C5"});  // C major: C4 E4 G4
     chord(s, 2.0f, 3.8f, {"D6", "C5", "C6"});  // E minor: E4 G4 B4
@@ -158,7 +158,7 @@ std::vector<Scene> scenes() {
     for (Pot l : {Pot::LevelSquare, Pot::LevelSaw, Pot::LevelTri, Pot::LevelSine, Pot::LevelSub1})
       pot(s.panel, l, 0.55f);
     pot(s.panel, Pot::LevelPink, 0.25f);
-    pot(s.panel, Pot::Detune, 0.85f); pot(s.panel, Pot::Attack, 0.604f); pot(s.panel, Pot::Release, 0.667f);  // ~0.65 s, ~1 s
+    pot(s.panel, Pot::Detune, 0.62f);  // +18 c pot(s.panel, Pot::Attack, 0.604f); pot(s.panel, Pot::Release, 0.667f);  // ~0.65 s, ~1 s
     pot(s.panel, Pot::FilterFreq, 0.45f); pot(s.panel, Pot::FilterEnv, 0.5f); pot(s.panel, Pot::FilterRes, 0.65f);
     pot(s.panel, Pot::ReverbMix, 0.9f); pot(s.panel, Pot::ReverbTime, 0.8f);
     s.panel.sw[static_cast<int>(Switch::FilterType)] = 6;  // LP24

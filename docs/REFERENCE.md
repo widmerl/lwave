@@ -96,10 +96,10 @@ One pass of `loop()`:
 
 1. Oscillators: saw and pulse with PolyBLEP anti-aliasing, triangle, table sine, then sub sines at −1 and −2 octaves. The four main waves are played in detuned copies, set by `detune_copies`:
 
-   | `detune_copies` | Copies | Detune knob |
+   | `detune_copies` | Copies | Detune knob at 100 % (scaled by the knob curve: 1/3 of this at 70 %) |
    | --- | --- | --- |
-   | 3 | centre + a low and a high copy at −/+ half the detune; each side at `detune_sides_db` (−10 dB) relative to the centre | spread |
-   | 2 (default) | main + one copy a full detune higher, at `detune_upper_db` (−6 dB) relative to the main | spread |
+   | 3 | centre + a low and a high copy, each at `detune_sides_db` (−6 dB) relative to the centre | low copy `detune_low_c` (23.17 c) below, high copy `detune_high_c` (37.5 c) above. 37.5 / 23.17 is the golden ratio, so the three beat rates (centre–low, centre–high, low–high) are golden-ratio multiples of each other and their peaks line up as rarely as possible |
+   | 2 (default) | main + one higher copy at `detune_upper_db` (−6 dB) relative to the main | upper copy `detune_upper_c` (75 c) above |
    | 1 | main only | chorus amount (see the shared chain) |
 
    The copy amplitudes add up to 1, so all modes have the same level with the detune knob at 0. Detuned, the copies partly cancel on average, so mode 1 without chorus is about 3 dB louder than modes 2 and 3. The four waves share one phase per copy (they always run at the same pitch); a voice keeps five phases in all. With `osc_random_phase` 1 every note starts its oscillators at random phases, like free-running analog oscillators; with 0 (default) they all start together, so every note sounds the same. Oscillators whose slider is down are skipped. Copies above 0.45 × sample rate are muted to avoid aliasing.
@@ -137,7 +137,7 @@ LFO depth at strength 100 %:
 | --- | --- |
 | Bitcrush | crush amount ±0.5 |
 | Delay | delay time ±5 % (tape wobble) |
-| Detune | detune × (1 ± 1); no effect with `detune_copies` 1 |
+| Detune | copy offsets × (1 ± 1), up to 4 × the full-knob spread; no effect with `detune_copies` 1 |
 | PWM | pulse width ±45 % |
 | Filter freq | cutoff ±4 octaves |
 | Volume & Pitch | both of the rows below; high volume coincides with low pitch |
@@ -178,7 +178,7 @@ A key that turns back before 30 % plays nothing. The octave is read at note-on, 
 | --- | --- |
 | Two log segments (`curveLog3`) | Reverb time (0.05–1–20 s); resonance (Q 0.05–1–20); filter frequency (20–640–20 000 Hz) |
 | Fully logarithmic (`timeKnobCurve`, `curveLogFull`) | Attack, decay, release, LFO period, LFO delay and delay time: 10 ms at CCW, 0.32 s at centre, 10 s at CW (`kTimeKnobMinS`, `kTimeKnobMaxS`). Panel ticks 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10 s sit at 0, 10, 23, 33, 43, 57, 67, 77, 90, 100 % of the travel |
-| Log to 0 (`LogTo0`) | Detune (0 c, 10 c at 70 %, 30 c) |
+| Log to 0 (`LogTo0`) | Detune amount 0 … 1 (1/3 at 70 %), scaling the copy offsets: 2 copies +25 c at 70 %, +75 c at 100 %; 3 copies −7.7 / +12.5 c at 70 %, −23.17 / +37.5 c at 100 % |
 | Linear | Sustain, velocity, LFO strength, mixes, delay feedback (0–90 %), filter envelope and tracking, overdrive, tune (±50 c), crush, PWM |
 | Linear dB to 0 (`curveDbTo0`) | Master volume and the 7 level sliders: −24 dB … +12 dB (−6 dB at centre), fading to silence over the bottom 5 % |
 
@@ -357,8 +357,11 @@ Generated from the `///` comments in the headers. Every class, function and fiel
 | `meter_fall_db_s` | 40.0 | 5.0 … 300.0 | meter fall speed (dB per second) |
 | `filter_env_oct` | 6.0 | 0.0 … 10.0 | octaves the filter envelope opens |
 | `detune_copies` | 2.0 | 1.0 … 3.0 | 3 centre+sides, 2 main+upper, 1 chorus |
-| `detune_sides_db` | -10.0 | -30.0 … 0.0 | 3 copies: side level vs centre (dB) |
+| `detune_sides_db` | -6.0 | -30.0 … 0.0 | 3 copies: side level vs centre (dB) |
 | `detune_upper_db` | -6.0 | -30.0 … 0.0 | 2 copies: upper level vs main (dB) |
+| `detune_low_c` | 23.17 | 0.0 … 300.0 | 3 copies: low copy at full knob (cents below) |
+| `detune_high_c` | 37.5 | 0.0 … 300.0 | 3 copies: high copy at full knob (cents above) |
+| `detune_upper_c` | 75.0 | 0.0 … 300.0 | 2 copies: upper copy at full knob (cents above) |
 | `osc_random_phase` | 0.0 | 0.0 … 1.0 | 1 = random oscillator start phase per note |
 | `hp_volume` | 0.6 | 0.0 … 1.0 | codec headphone volume (0-1) |
 | `debug_rate_hz` | 50.0 | 1.0 … 200.0 | debug stream rate (Hz) |
@@ -446,8 +449,8 @@ Panel positions → engine parameters, using the curves printed on the panel.
 - `int octaveShiftSemitones(int octavePos)` — Semitone shift for an octave-switch position 0..7 (panel 1..8): position 4 → 0.
 - `float timeKnobCurve(float p)` — Time-knob curve shared by attack, decay, release, LFO period and LFO delay: fully logarithmic, kTimeKnobMinS (10 ms) at CCW, 0.32 s at centre, kTimeKnobMaxS (10 s) at CW.
 - `float curveLogFull(float p, float lo, float hi)` — Fully logarithmic curve from lo (p = 0) to hi (p = 1).
-- `float detuneCurve(float p)` — Detune curve: 0 c, 10 c at 70 %, 30 c at CW.
-- `float potEngineValue(const EngineParams& e, Pot pot)` — The engine-unit value pot `pot` drives in `e`: seconds, Hz, cents, Q, 0..1, or dB for the level sliders and master volume. Detune gives cents, or the chorus amount 0..1 when detuneCopies = 1.
+- `float detuneCurve(float p)` — Detune knob curve, 0..1: 0 at CCW, 1/3 at 70 %, 1 at CW (log to 0). It scales the copy offsets set by detune_low_c, detune_high_c and detune_upper_c.
+- `float potEngineValue(const EngineParams& e, Pot pot)` — The engine-unit value pot `pot` drives in `e`: seconds, Hz, cents, Q, 0..1, or dB for the level sliders and master volume. Detune gives the cents of the highest copy (2 or 3 copies), or the chorus amount 0..1 with 1 copy.
 - `void formatPotValue(const EngineParams& e, Pot pot, char* buf, int size)` — Writes that value with its unit (e.g. "164 ms", "2.91 kHz", "-6.0 dB") into buf.
 
 #### `controller.h`
@@ -539,7 +542,7 @@ What the control side sends to the sound engine: a parameter snapshot (engine un
     - `float filterTrack = 0.0f` — 0..1 (1 = cutoff follows the note, pivot C4).
     - `float tuneCents = 0.0f` — -50..50.
     - `float pwm = 0.5f` — Pulse width 0..1.
-    - `float detuneCents = 0.0f` — 0..30 c: spread of the detuned copies (see detuneCopies).
+    - `float detuneAmount = 0.0f` — Detune knob through its curve, 0..1 (1/3 at 70 %); scales the copy offsets below.
     - `float detuneKnob = 0.0f` — Detune knob position 0..1 (chorus amount when detuneCopies = 1).
     - `float levelPink = 0.0f` — Linear gains from the level sliders.
     - `float volume = 1.0f` — Master volume, linear gain.
@@ -550,7 +553,10 @@ What the control side sends to the sound engine: a parameter snapshot (engine un
     - `float filterEnvOct = 6.0f` — See Settings::filterEnvOct.
     - `float meterFallDbS = 40.0f` — See Settings::meterFallDbS.
     - `int detuneCopies = 2` — See Settings::detuneCopies (1..3).
-    - `float detuneSideGain = 0.3162f` — Linear gain from Settings::detuneSidesDb.
+    - `float detuneSideGain = 0.5012f` — Linear gain from Settings::detuneSidesDb.
+    - `float detuneLowC = 23.17f` — See Settings::detuneLowC.
+    - `float detuneHighC = 37.5f` — See Settings::detuneHighC.
+    - `float detuneUpperC = 75.0f` — See Settings::detuneUpperC.
     - `float detuneUpperGain = 0.5012f` — Linear gain from Settings::detuneUpperDb.
     - `bool oscRandomPhase = false` — See Settings::oscRandomPhase.
 - **struct `NoteEvent`** — A note or cue event, sent through an SpscQueue.
@@ -692,7 +698,10 @@ Tunable settings. These are the values you are expected to experiment with on th
     - `float meterFallDbS = 40.0f` — Meter fall speed in dB per second (40 = one 6 dB LED every 0.15 s).
     - `float filterEnvOct = 6.0f` — Octaves the filter envelope opens at knob 100 %.
     - `float detuneCopies = 2.0f` — Oscillator copies: 3 = centre + one each side (± half the detune), 2 = main + one a full detune higher, 1 = no copies, the detune knob drives the chorus.
-    - `float detuneSidesDb = -10.0f` — With 3 copies: level of each side copy relative to the centre.
+    - `float detuneSidesDb = -6.0f` — With 3 copies: level of each side copy relative to the centre.
+    - `float detuneLowC = 23.17f` — With 3 copies: low copy below the centre at full detune knob (cents).
+    - `float detuneHighC = 37.5f` — With 3 copies: high copy above the centre at full detune knob (cents). 37.5 / 23.17 = golden ratio, so the three beat rates never line up.
+    - `float detuneUpperC = 75.0f` — With 2 copies: upper copy above the main one at full detune knob (cents).
     - `float detuneUpperDb = -6.0f` — With 2 copies: level of the upper copy relative to the main one.
     - `float oscRandomPhase = 0.0f` — 1 = oscillators start at random phases on every note (like free-running analog); 0 = all start together.
     - `float hpVolume = 0.6f` — SGTL5000 headphone volume (0..1), fixed; the master slider works digitally.
@@ -721,7 +730,7 @@ The byte layout saved in EEPROM: calibration + settings, with a magic number, ve
     - `Settings settings` — Settings.
     - `uint32_t crc` — CRC-32 of all bytes before this field.
 - `constexpr uint32_t kBlobMagic = 0x3156574Cu` — "LWV1" in little-endian.
-- `constexpr uint16_t kBlobVersion = 3` — Increase when CalibrationData or Settings change layout; old blobs are then ignored.
+- `constexpr uint16_t kBlobVersion = 4` — Increase when CalibrationData or Settings change layout; old blobs are then ignored.
 - `uint32_t crc32(const void* data, size_t len)` — Standard CRC-32 (IEEE, as used by zip).
 - `void packBlob(const CalibrationData& cal, const Settings& s, PersistentBlob& blob)` — Fills `blob` from calibration and settings, including the CRC.
 - `bool unpackBlob(const PersistentBlob& blob, CalibrationData& cal, Settings& s)` — Checks magic, version, size and CRC; on success copies the contents out (settings are clamped to their valid ranges). Returns false if invalid.
@@ -751,7 +760,7 @@ One synth voice: oscillators, mix, filter, envelope, LFO.
     - `FilterType filterType() const` — Filter type captured at note-on.
     - `static constexpr float kMaxLfoSemitones = 48.0f` — Largest pitch offset any LFO destination can apply, in semitones.
     - `static constexpr float kMaxLfoGain = 4.0f` — Largest volume gain the LFO can apply (+12 dB).
-    - `static constexpr float kMaxLfoDetune = 200.0f` — Largest detune the LFO can reach, in cents.
+    - `static constexpr float kMaxLfoDetune = 4.0f` — Largest detune the LFO can reach, as a multiple of the full-knob spread.
 
 ### DSP building blocks (lib/lwave/src/lwave/dsp)
 

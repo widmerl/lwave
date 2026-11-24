@@ -21,7 +21,7 @@ struct PersistentBlob {
 /// "LWV1" in little-endian.
 constexpr uint32_t kBlobMagic = 0x3156574Cu;
 /// Increase when CalibrationData or Settings change layout; old blobs are then ignored.
-constexpr uint16_t kBlobVersion = 3;
+constexpr uint16_t kBlobVersion = 4;
 
 /// Standard CRC-32 (IEEE, as used by zip).
 uint32_t crc32(const void* data, size_t len);

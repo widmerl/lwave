@@ -281,7 +281,6 @@ const SimCore = simCoreFactory();
 const wasmBytes = Uint8Array.from(atob(WASM_B64), (c) => c.charCodeAt(0));
 let wasmModule = null;  // compiled at start-up (async: browsers limit synchronous compiles on the main thread)
 let labels = null;      // main-thread instance: the firmware's knob curves for the value labels
-let detuneCopies = 2;   // follows 'set detune_copies' typed in the console (1 = the detune knob drives the chorus)
 
 const $ = (id) => document.getElementById(id);
 function storageGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
@@ -296,7 +295,7 @@ if (saved && Array.isArray(saved.pot) && saved.pot.length === 30 && Array.isArra
 // ---------------------------------------------------------------------------
 function fmtValue(i, pos) {
   const p = POTS[i];
-  if (p.name === 'Detune' && detuneCopies === 1) return 'chorus ' + (pos * 100).toFixed(0) + ' %';
+  if (p.name === 'Detune') return labels.formatPot(i, pos);  // depends on detune_copies and the detune_* settings
   const v = labels.mapValue(i, pos);
   switch (p.unit) {
     case 's': return v === 0 ? '0 ms' : v < 1 ? (v * 1000).toFixed(v < 0.1 ? 1 : 0) + ' ms' : v.toFixed(v < 10 ? 2 : 1) + ' s';
@@ -652,9 +651,7 @@ function runCommand(cmd) {
   cmd = cmd.trim();
   if (!cmd) return;
   if (cmd === 'clear') { logText = ''; logEl.textContent = ''; return; }
-  const dc = cmd.match(/^set\s+detune_copies\s+(\S+)/);
-  if (dc && isFinite(Number(dc[1]))) detuneCopies = Math.min(3, Math.max(1, Math.round(Number(dc[1]))));
-  if (cmd === 'defaults') detuneCopies = 2;
+  if (/^set\s/.test(cmd) || cmd === 'defaults') labels.labelLine(cmd.replace(/\s+/g, ' '));  // labels follow settings
   log('> ' + cmd + '\n');
   if (mode === 'mon' && monSource === 'serial') serialWrite(cmd);
   else if (audio) send({ t: 'line', s: cmd });

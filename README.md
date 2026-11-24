@@ -6,7 +6,7 @@ Firmware for the L-wave: a Tonnetz-layout polyphonic synth with 48 Hall-effect k
 - **Run the tests and render demo sounds on a PC:** see `docs/REFERENCE.md`, section 1.
 - **How everything works, plus every function:** `docs/REFERENCE.md`.
 
-Status: version 0.1.0. It compiles for the Teensy 4.1 and passes 52 host tests and the simulator test, but has not yet run on the hardware.
+Status: version 0.1.0. It compiles for the Teensy 4.1 and passes 53 host tests and the simulator test, but has not yet run on the hardware.
 
 **Try it without hardware:** open `simulator/lwave-sim.html` in Chrome or Edge. The same page has a hardware monitor that shows what the real synth reads over USB.
 

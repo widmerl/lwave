@@ -77,6 +77,13 @@ check(Math.abs(core.mapValue(4, 0.5) - 0.3162) < 1e-3, 'attack centre = 0.32 s')
 check(Math.abs(core.mapValue(4, 0) - 0.01) < 1e-4, 'attack minimum = 10 ms');
 check(Math.abs(core.mapValue(0, 1) - 10) < 1e-3, 'LFO period maximum = 10 s');
 check(Math.abs(core.mapValue(13, 0.5) - 640) < 0.5, 'filter centre = 640 Hz');
+const DETUNE = 21;
+check(core.formatPot(DETUNE, 1) === '+75.0 c', `detune label, 2 copies (${core.formatPot(DETUNE, 1)})`);
+core.line('set detune_copies 3');
+check(core.formatPot(DETUNE, 1) === '-23.2 / +37.5 c', `detune label, 3 copies (${core.formatPot(DETUNE, 1)})`);
+core.line('set detune_copies 1');
+check(core.formatPot(DETUNE, 0.6) === 'chorus 60 %', `detune label, chorus (${core.formatPot(DETUNE, 0.6)})`);
+core.line('defaults');
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
 process.exit(failures ? 1 : 0);

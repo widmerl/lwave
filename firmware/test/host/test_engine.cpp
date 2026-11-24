@@ -318,45 +318,35 @@ TEST(meter_falls_at_set_speed) {
 }
 
 namespace {
-// Renders a sine at A4 with the given detune mode and returns the output.
-std::vector<float> detuneRender(int copies, float cents, float seconds, float knob = 0.0f) {
+// Renders a sine at A4 with the given detune mode and amount (0..1 of the full-knob spread).
+std::vector<float> detuneRender(int copies, float amount, float seconds, float knob = 0.0f) {
   Rig r;
   basePatch(r.p());
   r.p().levelSine = 1.0f;
   r.p().detuneCopies = copies;
-  r.p().detuneCents = cents;
+  r.p().detuneAmount = amount;
   r.p().detuneKnob = knob;
+  r.p().reverbMix = 0.0f;
+  r.p().delayMix = 0.0f;
   r.publish();
   r.on(0, 69.0f);
   std::vector<float> x;
   r.run(seconds, nullptr, &x);
   return x;
 }
-// Strongest level-beating frequency (Hz) between lo and hi, from 10 ms RMS windows.
-float beatHz(const std::vector<float>& x, size_t from, float lo, float hi) {
-  const size_t w = (size_t)(0.01f * kSr);
-  std::vector<double> env;
-  for (size_t a = from; a + w <= x.size(); a += w) {
-    double s = 0;
-    for (size_t i = a; i < a + w; ++i) s += x[i] * x[i];
-    env.push_back(sqrt(s / w));
+// Hann-windowed amplitude of frequency f (Hz) in x[from..].
+double toneAmp(const std::vector<float>& x, size_t from, double f) {
+  const size_t n = x.size() - from;
+  double re = 0, im = 0;
+  for (size_t i = 0; i < n; ++i) {
+    double w = 0.5 - 0.5 * cos(2.0 * M_PI * i / (n - 1));
+    double ph = 2.0 * M_PI * f * i / kSr;
+    re += w * x[from + i] * cos(ph);
+    im += w * x[from + i] * sin(ph);
   }
-  double mean = 0;
-  for (double v : env) mean += v;
-  mean /= env.size();
-  float best = 0, bestMag = -1;
-  for (float f = lo; f <= hi; f += 0.02f) {
-    double re = 0, im = 0;
-    for (size_t k = 0; k < env.size(); ++k) {
-      double ph = 2.0 * M_PI * f * k * 0.01;
-      re += (env[k] - mean) * cos(ph);
-      im += (env[k] - mean) * sin(ph);
-    }
-    double mag = re * re + im * im;
-    if (mag > bestMag) { bestMag = (float)mag; best = f; }
-  }
-  return best;
+  return sqrt(re * re + im * im);
 }
+double centsAbove(double f, double c) { return f * pow(2.0, c / 1200.0); }
 }  // namespace
 
 TEST(detune_modes_same_level_without_detune) {
@@ -371,13 +361,24 @@ TEST(detune_modes_same_level_without_detune) {
   CHECK_NEAR(gainToDb(peak[2] / peak[0]), 0.0, 0.1);
 }
 
-TEST(detune_two_copies_beat_at_full_detune_three_at_half) {
-  // A4, 20 c: a full detune beats at 440 * (2^(20/1200) - 1) = 5.11 Hz, half at 2.55 Hz.
-  std::vector<float> two = detuneRender(2, 20.0f, 4.0f);
-  std::vector<float> three = detuneRender(3, 20.0f, 4.0f);
+TEST(detune_full_knob_copy_pitches_and_levels) {
+  // 3 copies at full knob: -23.17 c and +37.5 c around A4, each side at -6 dB.
+  std::vector<float> three = detuneRender(3, 1.0f, 3.0f);
   size_t from = (size_t)(0.2f * kSr);
-  CHECK_NEAR(beatHz(two, from, 1.0f, 8.0f), 5.11, 0.3);
-  CHECK_NEAR(beatHz(three, from, 1.0f, 8.0f), 2.55, 0.3);
+  double c = toneAmp(three, from, 440.0);
+  double lo = toneAmp(three, from, centsAbove(440.0, -23.17));
+  double hi = toneAmp(three, from, centsAbove(440.0, 37.5));
+  double gap = toneAmp(three, from, centsAbove(440.0, 15.0));  // between the copies: no tone
+  CHECK_NEAR(gainToDb((float)(lo / c)), -6.0, 0.5);
+  CHECK_NEAR(gainToDb((float)(hi / c)), -6.0, 0.5);
+  CHECK(gap < 0.05 * c);
+  // 2 copies at full knob: +75 c at -6 dB, nothing below.
+  std::vector<float> two = detuneRender(2, 1.0f, 3.0f);
+  double m = toneAmp(two, from, 440.0);
+  double up = toneAmp(two, from, centsAbove(440.0, 75.0));
+  double below = toneAmp(two, from, centsAbove(440.0, -23.17));
+  CHECK_NEAR(gainToDb((float)(up / m)), -6.0, 0.5);
+  CHECK(below < 0.05 * m);
 }
 
 TEST(chorus_bypass_at_zero_and_level_kept_when_on) {

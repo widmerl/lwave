@@ -111,7 +111,7 @@ void Voice::render(const EngineParams& p, const float* noise, float* out, int n,
     float pitchSemis = p.tuneCents * 0.01f;
     float volModTarget = 1.0f;
     float pwm = p.pwm;
-    float detune = p.detuneCents;
+    float detune = p.detuneAmount;  // 0..1 of the full-knob spread
     float filterOct = 0.0f;
     const float pitchMod = clampf(st * st * 12.0f * l, -kMaxLfoSemitones, kMaxLfoSemitones);
     const float volMod = clampf(1.0f + st * l, 0.0f, kMaxLfoGain);
@@ -139,15 +139,16 @@ void Voice::render(const EngineParams& p, const float* noise, float* out, int n,
     const float dtSub1 = dt0 * 0.5f, dtSub2 = dt0 * 0.25f;
 
     // Detuned copies (setting detune_copies). 3: centre plus a low and a high
-    // copy at -/+ half the detune, the sides at detune_sides_db. 2: main plus
-    // one copy a full detune higher at detune_upper_db. 1: main only (the
-    // detune knob drives the shared chorus instead). The copy amplitudes add up
+    // copy, detune_low_c below and detune_high_c above at full knob (23.17 and
+    // 37.5 c: golden ratio, so the three beat rates never line up), the sides at
+    // detune_sides_db. 2: main plus one copy detune_upper_c higher (75 c) at
+    // detune_upper_db. 1: main only (the detune knob drives the shared chorus
+    // instead). The detune knob scales the offsets. The copy amplitudes add up
     // to 1, so every mode has the same level with the detune knob at 0.
     const int copies = p.detuneCopies;
-    const float half = exp2f(detune * (0.5f / 1200.0f));
     const float dtC = dt0;
-    const float dtL = dt0 / half;
-    const float dtH = copies == 2 ? dt0 * half * half : dt0 * half;
+    const float dtL = dt0 * exp2f(-detune * p.detuneLowC * (1.0f / 1200.0f));
+    const float dtH = dt0 * exp2f(detune * (copies == 2 ? p.detuneUpperC : p.detuneHighC) * (1.0f / 1200.0f));
     const bool hasL = copies >= 3, hasH = copies >= 2;
     float aC = 1.0f, aL = 0.0f, aH = 0.0f;
     if (copies >= 3) {

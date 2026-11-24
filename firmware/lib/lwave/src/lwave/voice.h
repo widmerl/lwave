@@ -53,8 +53,8 @@ class Voice {
   static constexpr float kMaxLfoSemitones = 48.0f;
   /// Largest volume gain the LFO can apply (+12 dB).
   static constexpr float kMaxLfoGain = 4.0f;
-  /// Largest detune the LFO can reach, in cents.
-  static constexpr float kMaxLfoDetune = 200.0f;
+  /// Largest detune the LFO can reach, as a multiple of the full-knob spread.
+  static constexpr float kMaxLfoDetune = 4.0f;
 
  private:
   // Settings captured at note-on: the three switches and the start-phase mode.

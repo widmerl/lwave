@@ -36,7 +36,10 @@ struct Settings {
   // Sound
   float filterEnvOct = 6.0f;   ///< Octaves the filter envelope opens at knob 100 %.
   float detuneCopies = 2.0f;   ///< Oscillator copies: 3 = centre + one each side (± half the detune), 2 = main + one a full detune higher, 1 = no copies, the detune knob drives the chorus.
-  float detuneSidesDb = -10.0f;///< With 3 copies: level of each side copy relative to the centre.
+  float detuneSidesDb = -6.0f; ///< With 3 copies: level of each side copy relative to the centre.
+  float detuneLowC = 23.17f;   ///< With 3 copies: low copy below the centre at full detune knob (cents).
+  float detuneHighC = 37.5f;   ///< With 3 copies: high copy above the centre at full detune knob (cents). 37.5 / 23.17 = golden ratio, so the three beat rates never line up.
+  float detuneUpperC = 75.0f;  ///< With 2 copies: upper copy above the main one at full detune knob (cents).
   float detuneUpperDb = -6.0f; ///< With 2 copies: level of the upper copy relative to the main one.
   float oscRandomPhase = 0.0f; ///< 1 = oscillators start at random phases on every note (like free-running analog); 0 = all start together.
   float hpVolume = 0.6f;       ///< SGTL5000 headphone volume (0..1), fixed; the master slider works digitally.

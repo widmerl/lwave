@@ -40,7 +40,7 @@ struct EngineParams {
   // Oscillators
   float tuneCents = 0.0f;            ///< -50..50.
   float pwm = 0.5f;                  ///< Pulse width 0..1.
-  float detuneCents = 0.0f;          ///< 0..30 c: spread of the detuned copies (see detuneCopies).
+  float detuneAmount = 0.0f;         ///< Detune knob through its curve, 0..1 (1/3 at 70 %); scales the copy offsets below.
   float detuneKnob = 0.0f;           ///< Detune knob position 0..1 (chorus amount when detuneCopies = 1).
   float levelPink = 0.0f;            ///< Linear gains from the level sliders.
   float levelSquare = 0.0f;
@@ -58,7 +58,10 @@ struct EngineParams {
   float filterEnvOct = 6.0f;         ///< See Settings::filterEnvOct.
   float meterFallDbS = 40.0f;        ///< See Settings::meterFallDbS.
   int detuneCopies = 2;              ///< See Settings::detuneCopies (1..3).
-  float detuneSideGain = 0.3162f;    ///< Linear gain from Settings::detuneSidesDb.
+  float detuneSideGain = 0.5012f;    ///< Linear gain from Settings::detuneSidesDb.
+  float detuneLowC = 23.17f;         ///< See Settings::detuneLowC.
+  float detuneHighC = 37.5f;         ///< See Settings::detuneHighC.
+  float detuneUpperC = 75.0f;        ///< See Settings::detuneUpperC.
   float detuneUpperGain = 0.5012f;   ///< Linear gain from Settings::detuneUpperDb.
   bool oscRandomPhase = false;       ///< See Settings::oscRandomPhase.
   // Live key depth (0..1 of full travel), indexed like kKeys.

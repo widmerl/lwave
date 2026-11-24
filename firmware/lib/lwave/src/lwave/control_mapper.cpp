@@ -8,7 +8,7 @@ namespace lw {
 
 namespace {
 // Fitted once at start-up (global constructors run before setup()).
-const LogTo0 kDetuneCurve = LogTo0::fit(0.7f, 10.0f, 30.0f);
+const LogTo0 kDetuneCurve = LogTo0::fit(0.7f, 1.0f / 3.0f, 1.0f);
 const LogTo0& detCurve() { return kDetuneCurve; }
 float pot(const PanelState& p, Pot which) { return p.pot[static_cast<int>(which)]; }
 float level(const PanelState& p, Pot which) { return curveDbTo0(pot(p, which), -24.0f, 12.0f, 0.05f); }
@@ -43,7 +43,9 @@ float potEngineValue(const EngineParams& e, Pot pot) {
     case Pot::Tune: return e.tuneCents;
     case Pot::Crush: return e.crush;
     case Pot::Pwm: return e.pwm;
-    case Pot::Detune: return e.detuneCopies == 1 ? e.detuneKnob : e.detuneCents;
+    case Pot::Detune:
+      if (e.detuneCopies == 1) return e.detuneKnob;
+      return e.detuneAmount * (e.detuneCopies == 2 ? e.detuneUpperC : e.detuneHighC);
     case Pot::Volume: return gainToDb(e.volume);
     case Pot::LevelPink: return gainToDb(e.levelPink);
     case Pot::LevelSquare: return gainToDb(e.levelSquare);
@@ -72,7 +74,8 @@ void formatPotValue(const EngineParams& e, Pot pot, char* buf, int size) {
     case Pot::Tune: snprintf(buf, (size_t)size, "%+.1f c", v); break;
     case Pot::Detune:
       if (e.detuneCopies == 1) snprintf(buf, (size_t)size, "chorus %.0f %%", v * 100.0f);
-      else snprintf(buf, (size_t)size, "%.1f c", v);
+      else if (e.detuneCopies == 2) snprintf(buf, (size_t)size, "+%.1f c", v);
+      else snprintf(buf, (size_t)size, "-%.1f / +%.1f c", e.detuneAmount * e.detuneLowC, v);
       break;
     case Pot::Volume: case Pot::LevelPink: case Pot::LevelSquare: case Pot::LevelSaw: case Pot::LevelTri:
     case Pot::LevelSine: case Pot::LevelSub1: case Pot::LevelSub2:
@@ -120,7 +123,7 @@ void mapControls(const PanelState& panel, const Settings& s, float maxDelayS, En
   o.tuneCents = curveLinear(pot(panel, Pot::Tune), -50.0f, 50.0f);
   o.crush = pot(panel, Pot::Crush);
   o.pwm = pot(panel, Pot::Pwm);
-  o.detuneCents = detuneCurve(pot(panel, Pot::Detune));
+  o.detuneAmount = detuneCurve(pot(panel, Pot::Detune));
   o.detuneKnob = pot(panel, Pot::Detune);
 
   o.volume = level(panel, Pot::Volume);
@@ -141,6 +144,9 @@ void mapControls(const PanelState& panel, const Settings& s, float maxDelayS, En
   int copies = (int)(s.detuneCopies + 0.5f);
   o.detuneCopies = copies < 1 ? 1 : (copies > 3 ? 3 : copies);
   o.detuneSideGain = dbToGain(s.detuneSidesDb);
+  o.detuneLowC = s.detuneLowC;
+  o.detuneHighC = s.detuneHighC;
+  o.detuneUpperC = s.detuneUpperC;
   o.detuneUpperGain = dbToGain(s.detuneUpperDb);
   o.oscRandomPhase = s.oscRandomPhase >= 0.5f;
 }
