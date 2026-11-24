@@ -63,6 +63,9 @@ extern const AnalogSource kSwitchSources[kNumSwitches];
 extern const KeyInfo kKeys[kNumKeys];
 /// Short display names of the pots, indexed by Pot.
 extern const char* const kPotNames[kNumPots];
+/// True for pots whose reading falls as they turn up. On the first PCB all 22
+/// dials are wired that way round (sliders are not); their position is inverted.
+extern const bool kPotReversed[kNumPots];
 /// Short display names of the switches, indexed by Switch.
 extern const char* const kSwitchNames[kNumSwitches];
 

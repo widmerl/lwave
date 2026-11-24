@@ -121,8 +121,19 @@ int SwitchDecoder::update(int sw, uint16_t raw, uint32_t tUs, const CalibrationD
 // ---- BatteryMonitor --------------------------------------------------------
 void BatteryMonitor::update(uint16_t raw, float dtS, const Settings& s) {
   float v = (float)raw / (float)kAdcMax * 3.3f * s.battDivider;
-  if (!init_) { init_ = true; volts_ = v; }
-  else volts_ += (v - volts_) * (dtS / (2.0f + dtS));  // ~2 s smoothing
+  if (!init_) {
+    init_ = true;
+    volts_ = v;
+    age_ = 0.0f;
+  } else {
+    age_ += dtS;
+    const float tau = age_ < kBatteryFastS ? 0.02f : 2.0f;  // follow quickly while the divider settles
+    volts_ += (v - volts_) * (dtS / (tau + dtS));
+  }
+  if (age_ < kBatteryWarnDelayS) {  // no warning until the reading has settled
+    low_ = crit_ = false;
+    return;
+  }
   const float hyst = 0.05f;
   if (low_) { if (volts_ > s.battLowV + hyst) low_ = false; }
   else if (volts_ < s.battLowV) low_ = true;

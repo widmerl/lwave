@@ -1,4 +1,5 @@
 #include "lwave/calibration_data.h"
+#include "lwave/hw_map.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -6,9 +7,12 @@ namespace lw {
 
 void CalibrationData::setDefaults() {
   memset(this, 0, sizeof(*this));
+  // DRV5056 keys on the first build: about 950-1045 counts at rest (0.8 V),
+  // 1950-2230 fully down. Rest is set just above the highest rest reading so
+  // released keys read 0. Only used until the keys are calibrated.
   for (int k = 0; k < kNumKeys; ++k) {
-    keyRest[k] = 2048;
-    keyBottom[k] = 3548;
+    keyRest[k] = 1050;
+    keyBottom[k] = 2100;
   }
   for (int p = 0; p < kNumPots; ++p) {
     potMin[p] = 20;
@@ -30,7 +34,8 @@ float CalibrationData::potPosition(int pot, uint16_t raw) const {
   float span = (float)potMax[pot] - (float)potMin[pot];
   if (span < 1.0f) return 0.0f;
   float t = ((float)raw - (float)potMin[pot]) / span;
-  return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+  t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+  return kPotReversed[pot] ? 1.0f - t : t;
 }
 
 int CalibrationData::switchPosition(int sw, uint16_t raw) const {

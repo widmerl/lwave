@@ -161,7 +161,7 @@ LFO depth at strength 100 %:
 
 ## 5. Panel input
 
-**Keys** (`KeyProcessor`): travel 0..1 comes from `CalibrationData::keyTravel()` and works for either magnet polarity. Each key walks Idle → Timing → On → Idle:
+**Keys** (`KeyProcessor`): travel 0..1 comes from `CalibrationData::keyTravel()` and works for either magnet polarity. The sensors are DRV5056 (unipolar): about 0.6 V (745 counts) with no field, rising as the magnet comes closer; on the first build a fully pressed key reads about 1.8 V. Until the keys are calibrated the firmware assumes 745 → 2150 counts. The magnet's field grows steeply near the bottom, so "travel" here is really the field between the calibrated rest and bottom readings, and the thresholds below fall deeper in the physical key travel than their percentages suggest. Each key walks Idle → Timing → On → Idle:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -172,7 +172,7 @@ LFO depth at strength 100 %:
 
 A key that turns back before 30 % plays nothing. The octave is read at note-on, so held notes keep their pitch when the octave switch moves.
 
-**Pots** (`PotFilter`): calibrated position, one-pole smoothing (`pot_smooth_ms`), dead band (`pot_deadband`), and exact 0 and 1 at the ends. Curves are applied by `mapControls()` and pass through the three values printed on the panel:
+**Pots** (`PotFilter`): calibrated position, one-pole smoothing (`pot_smooth_ms`), dead band (`pot_deadband`), and exact 0 and 1 at the ends. On the first PCB the 22 dials read high when turned fully counter-clockwise, so their position is inverted (`kPotReversed` in hw_map.cpp); the 8 sliders are not. Curves are applied by `mapControls()` and pass through the three values printed on the panel:
 
 | Curve | Controls |
 | --- | --- |
@@ -186,7 +186,7 @@ Without PSRAM the delay buffer holds 2.5 s, and the delay-time knob ends there (
 
 **Switches** (`SwitchDecoder`): nearest calibrated voltage, accepted after `switch_debounce_ms` (20 ms) of stability.
 
-**Battery** (`BatteryMonitor`): pin 15 × 3.3 V / 4095 × `batt_div`, smoothed over ~2 s. LED 8 lights below `batt_low_v` (3.4 V) and blinks below `batt_crit_v` (3.2 V), with 0.05 V hysteresis.
+**Battery** (`BatteryMonitor`): pin 15 × 3.3 V / 4095 × `batt_div`. For the first 0.5 s after power-up the voltage follows the reading directly, because the divider's filter capacitor is still charging; after that it is smoothed over ~2 s. LED 8 lights below `batt_low_v` (3.4 V) and blinks below `batt_crit_v` (3.2 V), with 0.05 V hysteresis, but never during the first 3 s after power-up (`kBatteryWarnDelayS`).
 
 **LEDs**: 0–6 light at `meter_floor_db` + n × `meter_step_db` (−42 dBFS in 6 dB steps). LED 7 (red) lights at −1 dBFS or when the limiter is working. The meter follows peaks at once and falls at `meter_fall_db_s` (40 dB/s, one LED every 0.15 s). During calibration, LEDs 0–7 show progress.
 
@@ -205,8 +205,10 @@ Held keys are found by `detectHeldKeys()`. Calibrated keys use their travel; unc
 1. A rising chime plays. Release the key and keep hands off; 0.5 s after all keys look released, rest values are measured for 2 s. A second chime plays.
 2. Press every key fully. A key ticks at its own pitch once its span exceeds 400 counts and it has come back up.
 3. Turn every dial and slider to both ends (within 400 counts of each rail); each ticks once.
-4. Turn every rotary switch through all 8 positions; each ticks twice when 8 distinct stable voltages are seen. They are sorted so position 1 is the highest voltage.
+4. Turn every rotary switch slowly through all 8 positions. A position counts once its reading stays within 40 counts for 60 ms and lies within 250 counts of its nominal ladder voltage ((8 − position) / 7 of full scale; readings between detents are ignored). Each new position ticks, higher positions at higher pitch; the position a switch rests on is counted straight away. When all 8 are found, a two-note chime plays.
 5. When everything is done a chord plays, the result is saved, and the synth continues in normal mode. Hold C4 for 3 s to finish early: completed controls are saved, the rest keep their previous values.
+
+The serial console follows along: it prints each phase, and every 5 s during the sweep what is still missing, for example `Calibration: 46/48 keys, 29/30 pots, 3/4 switches. Missing: keys A3 F7; pots flt_res (12-3410); switches octave missing 3 7`. Pots show the lowest and highest reading so far; each must reach within 400 counts of 0 and of 4095. While waiting for the keys to be released it names any key that still looks pressed. At the end it prints how many controls were calibrated and whether the save worked.
 
 **Console commands** (USB serial, 115200 baud, line-based):
 
@@ -322,6 +324,7 @@ Event-log lines (`EV on …`, `EV switch …`, `EV line_out …`) arrive between
 - **Line-out detect** only reports its level; its polarity and any pull-up are not yet known.
 - **Scan rate and ADC settling** (`kSettleNs` = 1.5 µs) are untested on hardware; check `scan=` in the stats view (target ≥ 2 kHz).
 - **Key thresholds and velocity times** are first guesses; tune them live with `set`.
+- **Key response vs physical travel**: the Hall reading is not linear in key travel (the field rises steeply near the bottom). If the keys feel like they only start near the bottom after calibration, lower `key_vel_start` / `key_note_on` or add a linearising curve.
 - **Triangle** is not band-limited. Its aliasing is low, but it may be audible on very high notes.
 - **Overdrive** runs without oversampling; heavy drive on high notes can alias.
 - **Compile check**: PlatformIO couldn't run in the build environment, so the Teensy build was checked with PJRC's current core sources and GCC 13 instead of PlatformIO's toolchain. Your first PlatformIO build is the real confirmation.
@@ -375,16 +378,16 @@ Stored calibration: per-key rest/bottom, per-pot ends, per-switch position volta
 - **struct `CalibrationData`** — Calibration values in raw 12-bit ADC counts. Plain data (stored as bytes).
     - `uint16_t keyRest[kNumKeys]` — Reading with the key up.
     - `uint16_t keyBottom[kNumKeys]` — Reading with the key fully down (may be below rest).
-    - `uint16_t potMin[kNumPots]` — Reading at the CCW / bottom end.
-    - `uint16_t potMax[kNumPots]` — Reading at the CW / top end.
+    - `uint16_t potMin[kNumPots]` — Lowest reading (CW end for the dials, bottom for the sliders).
+    - `uint16_t potMax[kNumPots]` — Highest reading (CCW end for the dials, top for the sliders).
     - `uint16_t switchLevel[kNumSwitches][kSwitchPositions]` — Reading at positions 1..8.
     - `uint8_t keyValid[kNumKeys]` — 1 if the key was calibrated.
     - `uint8_t potValid[kNumPots]` — 1 if the pot was calibrated.
     - `uint8_t switchValid[kNumSwitches]` — 1 if the switch was calibrated.
     - `uint8_t pad[2]` — Keeps the size a multiple of 4.
-    - `void setDefaults()` — Nominal values used until a calibration is stored: pots rail to rail, switch ladder at (8 - position) / 7 of 3.3 V, keys assumed to read mid-rail at rest and rise by 1500 counts when pressed (a guess).
+    - `void setDefaults()` — Nominal values used until a calibration is stored: pots rail to rail, switch ladder at (8 - position) / 7 of 3.3 V, keys at 1050 counts at rest and 2100 fully down (measured on the first build: about 950-1045 up, 1950-2230 down).
     - `float keyTravel(int key, uint16_t raw) const` — Key travel 0 (rest) .. 1 (bottom), clamped. Works for either sensor polarity.
-    - `float potPosition(int pot, uint16_t raw) const` — Pot position 0..1, clamped.
+    - `float potPosition(int pot, uint16_t raw) const` — Pot position 0..1, clamped; inverted for pots marked in kPotReversed.
     - `int switchPosition(int sw, uint16_t raw) const` — Switch position 0..7 nearest to raw.
     - `bool complete() const` — True if every key, pot and switch has been calibrated.
     - `void counts(int& keys, int& pots, int& switches) const` — Number of calibrated keys, pots and switches.
@@ -397,7 +400,7 @@ The guided calibration routine (hold C4 at power-up).
     - `float hz` — Frequency.
     - `float seconds` — Length.
     - `float delayS` — Start this long after the request (for chimes and chords).
-- **class `Calibrator`** — Walks through calibration: 1. WaitRelease: waits until all keys look released (including the one held at boot). 2. Rest (2 s): records each key's rest value and noise. 3. Sweep: records each key's extreme, each pot's ends and each switch's 8 voltages; every control ticks once when it is complete. 4. Done: when everything is complete, or after C4 is held for 3 s.
+- **class `Calibrator`** — Walks through calibration: 1. WaitRelease: waits until all keys look released (including the one held at boot). 2. Rest (2 s): records each key's rest value and noise. 3. Sweep: records each key's extreme, each pot's ends and each switch's 8 voltages. Keys and pots tick once when complete; a switch ticks for every new position (higher pitch for higher positions) and chimes when all 8 are found. A switch position counts once its reading stays within kSwitchJitter counts for kSwitchStableUs and lies within kSwitchNominalTolerance of the nominal ladder voltage (8 - position) / 7 of full scale, so readings between detents are ignored. 4. Done: when everything is complete, or after C4 is held for 3 s.
 - **enum class `Phase`** — Calibration phase.
     - `void start(const CalibrationData& previous, uint32_t tUs)` — Starts a new calibration. `previous` supplies values for controls that end up not calibrated.
     - `void update(const ScanFrame& f)` — Feeds one scan frame.
@@ -412,8 +415,14 @@ The guided calibration routine (hold C4 at power-up).
     - `bool potDone(int p) const` — True if pot p is complete.
     - `bool switchDone(int s) const` — True if switch s is complete.
     - `int switchLevelsSeen(int s) const` — Number of distinct positions seen so far on switch s.
+    - `bool switchPositionSeen(int s, int i) const` — True once position i (0 = position 1) of switch s has been recorded.
+    - `void describeMissing(char* buf, int size) const` — Writes what is still missing during the sweep, for the serial console, e.g. "keys A3 F7; pots flt_res (12-3410); switches octave missing 3 7". Pots show the lowest and highest reading so far; each must come within kPotRailMargin of 0 and of full scale.
+    - `void describeHeld(char* buf, int size) const` — Writes the keys that currently look pressed (while waiting for release).
     - `static constexpr int kMinKeySpan = 400` — Minimum key span (counts) between rest and bottom to accept a key.
     - `static constexpr int kPotRailMargin = 400` — A pot must come this close (counts) to each rail to be accepted.
+    - `static constexpr int kSwitchJitter = 40` — A switch reading must stay within this many counts ...
+    - `static constexpr uint32_t kSwitchStableUs = 60000` — ... for this long (µs) to count as a position.
+    - `static constexpr int kSwitchNominalTolerance = 250` — A position's reading must be this close (counts) to its nominal ladder voltage.
 
 #### `config.h`
 
@@ -428,6 +437,8 @@ Compile-time configuration. Everything here is fixed at build time. Values you m
 - `constexpr float kCpuHighPercent = 90.0f` — CPU guard: above this audio CPU load the polyphony cap drops by two voices below what is sounding (never below kMinVoiceCap) …
 - `constexpr float kCpuLowPercent = 70.0f` — … and below this load it rises again by one voice every 0.5 s.
 - `constexpr int kMinVoiceCap = 6` — The CPU guard never caps polyphony below this.
+- `constexpr float kBatteryFastS = 0.5f` — Battery: for this long after power-up the reading is followed directly (the divider's filter capacitor is still charging), then smoothed over ~2 s.
+- `constexpr float kBatteryWarnDelayS = 3.0f` — Battery: no low or critical warning for this long after power-up.
 - `constexpr int kNumKeys = 48` — Number of note keys on the panel.
 - `constexpr int kNumPots = 30` — Number of potentiometers: 22 dials + 8 sliders.
 - `constexpr int kNumSwitches = 4` — Number of 8-position rotary switches.
@@ -475,6 +486,7 @@ The controller: everything between the scanner and the sound engine. Boot modes,
     - `const Calibrator& calibrator() const` — The calibrator (for progress display and tests).
     - `int voiceCap() const` — Polyphony cap from the CPU guard (kMaxVoices when the CPU load is fine).
     - `float cpuPercent() const` — Audio CPU load in percent (peak of the last 100 ms window), -1 if unknown.
+    - `void reportCalibration(uint32_t t)` — Prints calibration phase changes and, every 5 s, what is still missing.
     - `void updateCpuGuard(uint32_t t)` — Every 100 ms: reads the audio CPU load and lowers the polyphony cap while it is above kCpuHighPercent; raises it again while below kCpuLowPercent.
     - `void printMonitor(const ScanFrame& f)` — One machine-readable MON line for the browser monitor (see docs/REFERENCE.md).
 
@@ -606,6 +618,7 @@ Hardware map: which panel control sits on which mux channel or Teensy pin, and w
 - `extern const AnalogSource kSwitchSources[kNumSwitches]` — Source of each rotary switch, indexed by Switch.
 - `extern const KeyInfo kKeys[kNumKeys]` — All 48 keys, in net-name order A1..F7.
 - `extern const char* const kPotNames[kNumPots]` — Short display names of the pots, indexed by Pot.
+- `extern const bool kPotReversed[kNumPots]` — True for pots whose reading falls as they turn up. On the first PCB all 22 dials are wired that way round (sliders are not); their position is inverted.
 - `extern const char* const kSwitchNames[kNumSwitches]` — Short display names of the switches, indexed by Switch.
 - `int keyIndexByName(const char* name)` — Index into kKeys of the key with this net name, or -1 if there is none.
 - `int keyIndexAt(uint8_t mux, uint8_t channel)` — Index of the key on mux `mux`, channel `channel`, or -1 if none.
@@ -648,7 +661,7 @@ Turning raw readings into notes, knob positions, switch positions and battery st
     - `int update(int sw, uint16_t raw, uint32_t tUs, const CalibrationData& cal, const Settings& s)` — Feeds a raw reading at tUs; returns the accepted position 0..7.
     - `int position() const` — Accepted position 0..7.
 - **class `BatteryMonitor`** — Battery voltage, smoothed, with low / critical flags (with 0.05 V hysteresis).
-    - `void update(uint16_t raw, float dtS, const Settings& s)` — Feeds a raw reading after dtS seconds.
+    - `void update(uint16_t raw, float dtS, const Settings& s)` — Feeds a raw reading after dtS seconds. For the first kBatteryFastS the voltage follows the reading directly (lightly smoothed); after that it is smoothed over ~2 s. The low and critical warnings stay off for the first kBatteryWarnDelayS, while the divider settles after power-up.
     - `float volts() const` — Smoothed battery voltage.
     - `bool low() const` — Below batt_low_v.
     - `bool critical() const` — Below batt_crit_v.

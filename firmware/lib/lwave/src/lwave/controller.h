@@ -66,6 +66,8 @@ class Controller {
   void processKeys(const ScanFrame& f);
   void processControls(const ScanFrame& f, float dtS);
   void publishParams();
+  /// Prints calibration phase changes and, every 5 s, what is still missing.
+  void reportCalibration(uint32_t t);
   /// Every 100 ms: reads the audio CPU load and lowers the polyphony cap while
   /// it is above kCpuHighPercent; raises it again while below kCpuLowPercent.
   void updateCpuGuard(uint32_t t);
@@ -112,6 +114,9 @@ class Controller {
   int potShown_[kNumPots] = {};      // last value printed by the 'p' view (0.1 % steps), -1 = print
   int switchShown_[kNumSwitches] = {};
   EngineParams lastParams_;          // last published parameters (for printing engine values)
+  // calibration progress printing
+  int calPhaseShown_ = -1;
+  uint32_t calPrintT_ = 0;
   // CPU guard
   float cpu_ = -1.0f;
   int voiceCap_ = kMaxVoices;

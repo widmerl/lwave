@@ -1,4 +1,5 @@
 #include "lwave/calibrator.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include "lwave/dsp/basics.h"
@@ -10,8 +11,24 @@ namespace {
 constexpr uint32_t kSettleUs = 500000;      // after release, before measuring rest
 constexpr uint32_t kRestUs = 2000000;       // rest measurement time
 constexpr uint32_t kFinishHoldUs = 3000000; // hold C4 this long to finish early
-constexpr int kSwitchMinGap = 150;          // counts between two distinct switch positions
-constexpr int kSwitchStableFrames = 40;     // ~20 ms at 2 kHz scanning
+// Nominal ladder reading of switch position i (0 = position 1 = 3.3 V).
+int nominalSwitchLevel(int i) { return (kAdcMax * (kSwitchPositions - 1 - i)) / (kSwitchPositions - 1); }
+
+// Appends text to buf (size bytes) at *n, never overflowing.
+void put(char* buf, int size, int* n, const char* text) {
+  while (*text && *n < size - 1) buf[(*n)++] = *text++;
+  buf[*n] = 0;
+}
+void putNum(char* buf, int size, int* n, int v) {
+  char tmp[12];
+  int len = 0;
+  if (v < 0) { put(buf, size, n, "-"); v = -v; }
+  do { tmp[len++] = (char)('0' + v % 10); v /= 10; } while (v && len < 11);
+  char out[12];
+  for (int i = 0; i < len; ++i) out[i] = tmp[len - 1 - i];
+  out[len] = 0;
+  put(buf, size, n, out);
+}
 }  // namespace
 
 void Calibrator::start(const CalibrationData& previous, uint32_t tUs) {
@@ -47,7 +64,7 @@ void Calibrator::update(const ScanFrame& f) {
       blank.setDefaults();  // all keys invalid → median comparison
       detectHeldKeys(f.keys, blank, held);
       bool any = false;
-      for (bool h : held) any = any || h;
+      for (int k = 0; k < kNumKeys; ++k) { held_[k] = held[k]; any = any || held[k]; }
       if (any) phaseStart_ = t;
       else if ((uint32_t)(t - phaseStart_) > kSettleUs) {
         phase_ = Phase::Rest;
@@ -70,7 +87,12 @@ void Calibrator::update(const ScanFrame& f) {
           keyExtreme_[k] = rest_[k];
         }
         for (int p = 0; p < kNumPots; ++p) potMin_[p] = potMax_[p] = f.pots[p];
-        for (int s = 0; s < kNumSwitches; ++s) switchLast_[s] = f.switches[s];
+        for (int s = 0; s < kNumSwitches; ++s) {
+          switchAnchor_[s] = f.switches[s];
+          switchSince_[s] = t;
+          switchSum_[s] = switchN_[s] = 0;
+          switchChecked_[s] = false;
+        }
         phase_ = Phase::Sweep;
         phaseStart_ = t;
         pushCue(659.25f, 0.12f, 0.0f);  // second chime: start sweeping
@@ -99,23 +121,33 @@ void Calibrator::update(const ScanFrame& f) {
           pushCue(1760.0f, 0.05f, 0.0f);
         }
       }
-      // Switches: collect stable, distinct voltages; done at 8.
+      // Switches: a reading that stays steady for kSwitchStableUs near one of the
+      // 8 nominal ladder voltages records that position (averaged over the stretch).
       for (int s = 0; s < kNumSwitches; ++s) {
-        uint16_t v = f.switches[s];
-        if (abs((int)v - (int)switchLast_[s]) < 20) ++switchStable_[s];
-        else switchStable_[s] = 0;
-        switchLast_[s] = v;
-        if (switchDone_[s] || switchStable_[s] != kSwitchStableFrames) continue;
-        bool known = false;
-        for (int i = 0; i < switchCount_[s]; ++i)
-          if (abs((int)v - (int)switchLevels_[s][i]) < kSwitchMinGap) known = true;
-        if (!known && switchCount_[s] < kSwitchPositions) {
-          switchLevels_[s][switchCount_[s]++] = v;
-          if (switchCount_[s] == kSwitchPositions) {
-            switchDone_[s] = true;
-            pushCue(1318.5f, 0.08f, 0.0f);
-            pushCue(1568.0f, 0.08f, 0.1f);
-          }
+        const uint16_t v = f.switches[s];
+        if (abs((int)v - (int)switchAnchor_[s]) > kSwitchJitter) {
+          switchAnchor_[s] = v;
+          switchSince_[s] = t;
+          switchSum_[s] = switchN_[s] = 0;
+          switchChecked_[s] = false;
+        }
+        switchSum_[s] += v;
+        ++switchN_[s];
+        if (switchDone_[s] || switchChecked_[s] || (uint32_t)(t - switchSince_[s]) < kSwitchStableUs) continue;
+        switchChecked_[s] = true;
+        const int avg = (int)(switchSum_[s] / switchN_[s]);
+        const float step = (float)kAdcMax / (float)(kSwitchPositions - 1);
+        int i = (int)((float)(kAdcMax - avg) / step + 0.5f);
+        i = i < 0 ? 0 : (i >= kSwitchPositions ? kSwitchPositions - 1 : i);
+        if (abs(avg - nominalSwitchLevel(i)) > kSwitchNominalTolerance || switchSeen_[s][i]) continue;
+        switchSeen_[s][i] = true;
+        switchLevels_[s][i] = (uint16_t)avg;
+        ++switchCount_[s];
+        pushCue(880.0f * exp2f((float)(2 * i) / 12.0f), 0.06f, 0.0f);  // one tick per new position
+        if (switchCount_[s] == kSwitchPositions) {
+          switchDone_[s] = true;
+          pushCue(1318.5f, 0.08f, 0.1f);
+          pushCue(1568.0f, 0.08f, 0.2f);
         }
       }
       // Finish: everything done, or C4 held for 3 s.
@@ -145,15 +177,8 @@ void Calibrator::finish() {
     }
   for (int s = 0; s < kNumSwitches; ++s)
     if (switchDone_[s]) {
-      // Position 1 is the highest voltage: sort descending.
-      uint16_t* lv = switchLevels_[s];
-      for (int i = 1; i < kSwitchPositions; ++i) {
-        uint16_t v = lv[i];
-        int j = i - 1;
-        while (j >= 0 && lv[j] < v) { lv[j + 1] = lv[j]; --j; }
-        lv[j + 1] = v;
-      }
-      memcpy(result_.switchLevel[s], lv, sizeof(result_.switchLevel[s]));
+      // Already indexed by position (position 1 = highest voltage).
+      memcpy(result_.switchLevel[s], switchLevels_[s], sizeof(result_.switchLevel[s]));
       result_.switchValid[s] = 1;
     }
   phase_ = Phase::Done;
@@ -161,6 +186,52 @@ void Calibrator::finish() {
   pushCue(523.25f, 0.5f, 0.0f);
   pushCue(659.25f, 0.5f, 0.0f);
   pushCue(783.99f, 0.5f, 0.0f);
+}
+
+void Calibrator::describeMissing(char* buf, int size) const {
+  int n = 0;
+  buf[0] = 0;
+  int missing = kNumKeys - keysDone(), listed = 0;
+  if (missing > 0) {
+    put(buf, size, &n, "keys");
+    for (int k = 0; k < kNumKeys && listed < 12; ++k)
+      if (!keyDone_[k]) { put(buf, size, &n, " "); put(buf, size, &n, kKeys[k].name); ++listed; }
+    if (missing > listed) { put(buf, size, &n, " +"); putNum(buf, size, &n, missing - listed); put(buf, size, &n, " more"); }
+  }
+  bool first = true;
+  int potsListed = 0, potsMissing = kNumPots - potsDone();
+  for (int p = 0; p < kNumPots && potsListed < 8; ++p) {
+    if (potDone_[p]) continue;
+    ++potsListed;
+    put(buf, size, &n, first ? (n ? "; pots " : "pots ") : ", ");
+    first = false;
+    put(buf, size, &n, kPotNames[p]);
+    put(buf, size, &n, " (");
+    putNum(buf, size, &n, potMin_[p]);
+    put(buf, size, &n, "-");
+    putNum(buf, size, &n, potMax_[p]);
+    put(buf, size, &n, ")");
+  }
+  if (potsMissing > potsListed) { put(buf, size, &n, " +"); putNum(buf, size, &n, potsMissing - potsListed); put(buf, size, &n, " more"); }
+  first = true;
+  for (int s = 0; s < kNumSwitches; ++s) {
+    if (switchDone_[s]) continue;
+    put(buf, size, &n, first ? (n ? "; switches " : "switches ") : ", ");
+    first = false;
+    put(buf, size, &n, kSwitchNames[s]);
+    put(buf, size, &n, " missing");
+    for (int i = 0; i < kSwitchPositions; ++i)
+      if (!switchSeen_[s][i]) { put(buf, size, &n, " "); putNum(buf, size, &n, i + 1); }
+  }
+  if (n == 0) put(buf, size, &n, "nothing");
+}
+
+void Calibrator::describeHeld(char* buf, int size) const {
+  int n = 0;
+  buf[0] = 0;
+  for (int k = 0; k < kNumKeys; ++k)
+    if (held_[k]) { put(buf, size, &n, n ? " " : ""); put(buf, size, &n, kKeys[k].name); }
+  if (n == 0) put(buf, size, &n, "none");
 }
 
 int Calibrator::keysDone() const {

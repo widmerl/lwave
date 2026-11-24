@@ -69,6 +69,18 @@ const char* const kPotNames[kNumPots] = {
     "volume", "lvl_pink", "lvl_square", "lvl_saw", "lvl_tri", "lvl_sine", "lvl_sub1", "lvl_sub2",
 };
 
+// The 22 dials read high when turned fully counter-clockwise (found on the first
+// hardware build); the 8 sliders read low at the bottom.
+static_assert(static_cast<int>(Pot::Volume) == 22, "dials are the first 22 pots");
+const bool kPotReversed[kNumPots] = {
+    true, true, true, true,               // LFO period, delay, strength, velocity
+    true, true, true, true,               // attack, decay, sustain, release
+    true, true, true, true, true,         // reverb time/mix, delay time/feedback/mix
+    true, true, true, true,               // filter freq, env, tracking, resonance
+    true, true, true, true, true,         // overdrive, tune, crush, PWM, detune
+    false, false, false, false, false, false, false, false,  // sliders
+};
+
 const char* const kSwitchNames[kNumSwitches] = {"lfo_dest", "lfo_wave", "octave", "flt_type"};
 
 int keyIndexByName(const char* name) {

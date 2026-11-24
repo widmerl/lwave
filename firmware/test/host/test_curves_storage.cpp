@@ -150,3 +150,23 @@ TEST(setting_names_are_unique) {
   for (int i = 0; i < kNumSettings; ++i)
     for (int j = i + 1; j < kNumSettings; ++j) CHECK(strcmp(kSettingInfos[i].name, kSettingInfos[j].name) != 0);
 }
+
+TEST(dials_are_inverted_sliders_are_not) {
+  CalibrationData c;
+  c.setDefaults();
+  CHECK_NEAR(c.potPosition(static_cast<int>(Pot::Attack), 20), 1.0, 1e-6);   // dial: low reading = fully up
+  CHECK_NEAR(c.potPosition(static_cast<int>(Pot::Attack), 4075), 0.0, 1e-6);
+  CHECK_NEAR(c.potPosition(static_cast<int>(Pot::Volume), 4075), 1.0, 1e-6);  // slider: high reading = top
+  CHECK_NEAR(c.potPosition(static_cast<int>(Pot::Volume), 20), 0.0, 1e-6);
+  int dials = 0;
+  for (bool r : kPotReversed) dials += r;
+  CHECK(dials == 22);
+}
+
+TEST(default_key_calibration_fits_drv5056) {
+  CalibrationData c;
+  c.setDefaults();
+  CHECK_NEAR(c.keyTravel(0, 1044), 0.0, 1e-6);  // highest rest reading on the first build
+  CHECK(c.keyTravel(0, 1956) > 0.8f);           // lowest fully-down reading
+  CHECK(c.keyTravel(0, 2229) > 0.99f);          // highest fully-down reading
+}

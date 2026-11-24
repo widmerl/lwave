@@ -1,7 +1,9 @@
 // Tests: key processing (velocity, thresholds, depth freeze), pots, switches,
 // battery, boot detection, calibration routine.
 #include <initializer_list>
+#include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include "lwave/calibrator.h"
 #include "lwave/hw_map.h"
 #include "lwave/input.h"
@@ -99,6 +101,29 @@ TEST(switch_debounce) {
   CHECK(d.update(0, pos3 + 40, 23000, cal, s) == 3);
 }
 
+TEST(battery_no_warning_while_the_divider_settles) {
+  Settings s;  // divider 2.0, low 3.4 V
+  auto raw = [](float v) { return (uint16_t)(v / 2.0f / 3.3f * 4095.0f); };
+  // A full battery whose divider capacitor charges over the first 0.3 s.
+  BatteryMonitor good;
+  bool everLow = false;
+  for (float t = 0; t < 6.0f; t += 0.0005f) {
+    float v = 3.9f * (1.0f - expf(-t / 0.06f));
+    good.update(raw(v), 0.0005f, s);
+    everLow |= good.low() || good.critical();
+  }
+  CHECK(!everLow);
+  CHECK_NEAR(good.volts(), 3.9, 0.02);
+  // A really low battery: warned only after 3 s, and right then.
+  BatteryMonitor weak;
+  float firstLow = -1;
+  for (float t = 0; t < 6.0f; t += 0.0005f) {
+    weak.update(raw(3.1f), 0.0005f, s);
+    if (firstLow < 0 && weak.critical()) firstLow = t;
+  }
+  CHECK(firstLow >= 2.99f && firstLow < 3.1f);
+}
+
 TEST(battery_low_and_hysteresis) {
   Settings s;  // divider 2.0, low 3.4 V
   BatteryMonitor b;
@@ -168,10 +193,10 @@ TEST(calibration_full_sweep) {
         c.update(f);
       }
   CHECK(c.potsDone() == kNumPots);
-  // Turn every switch through its 8 positions.
+  // Turn every switch through its 8 positions (75 ms at each).
   for (int s = 0; s < kNumSwitches; ++s)
     for (int pos = 0; pos < 8; ++pos)
-      for (int i = 0; i < 60; ++i, t += dt) {
+      for (int i = 0; i < 150; ++i, t += dt) {
         ScanFrame f = restFrame(t);
         for (int q = 0; q < kNumPots; ++q) f.pots[q] = 4085;
         f.switches[s] = (uint16_t)(4095 - pos * 585);
@@ -216,4 +241,48 @@ TEST(keys_fast_release_keeps_full_depth) {
   }
   CHECK(minDepthWhileOn > 0.99f);
   CHECK(frozen > 0.99f);
+}
+
+TEST(calibration_switch_positions_tolerate_noise_and_skip_in_between) {
+  Calibrator c;
+  CalibrationData prev;
+  prev.setDefaults();
+  uint32_t t = 0;
+  const uint32_t dt = 500;
+  c.start(prev, t);
+  for (int i = 0; i < 6000; ++i, t += dt) c.update(restFrame(t));
+  CHECK(c.phase() == Calibrator::Phase::Sweep);
+  Cue cues[16];
+  while (c.drainCues(cues, 16) > 0) {}
+  uint32_t seed = 7;
+  auto noise = [&]() { seed = seed * 1664525u + 1013904223u; return (int)(seed >> 27) - 16; };  // -16..15
+  auto hold = [&](int level, int frames) {
+    for (int i = 0; i < frames; ++i, t += dt) {
+      ScanFrame f = restFrame(t);
+      int v = level + noise();
+      f.switches[0] = (uint16_t)(v < 0 ? 0 : (v > 4095 ? 4095 : v));
+      c.update(f);
+    }
+  };
+  // The rest frames already held every switch at position 5 (1800 counts).
+  CHECK(c.switchLevelsSeen(0) == 1 && c.switchPositionSeen(0, 4));
+  // A reading halfway between positions 3 and 4, held for 100 ms: ignored.
+  hold(4095 - (int)(2.5 * 585), 200);
+  CHECK(c.switchLevelsSeen(0) == 1);
+  // Positions 1..8 with noise, 75 ms each; every new position ticks.
+  int ticks = 0;
+  for (int pos = 0; pos < 8; ++pos) {
+    hold(4095 - pos * 585, 150);
+    ticks += c.drainCues(cues, 16);
+    CHECK(c.switchPositionSeen(0, pos));
+  }
+  CHECK(c.switchDone(0));
+  CHECK(ticks >= 7 + 2);  // 7 new positions plus the two-note chime
+  // Going back to a known position adds nothing.
+  hold(4095 - 3 * 585, 150);
+  CHECK(c.switchLevelsSeen(0) == 8);
+  char buf[400];
+  c.describeMissing(buf, sizeof(buf));
+  CHECK(strstr(buf, "lfo_dest") == nullptr);  // switch 0 is complete
+  CHECK(strstr(buf, "octave missing 1 2 3 4 6 7 8") != nullptr);  // position 5 came from the rest frames
 }

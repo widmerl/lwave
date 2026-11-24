@@ -25,7 +25,8 @@ using namespace lw;
 
 namespace {
 
-constexpr uint16_t kKeyRest = 1000, kKeyBottom = 3000;
+// Like the DRV5056 keys on the first build: about 985 counts up, 2140 fully down.
+constexpr uint16_t kKeyRest = 985, kKeyBottom = 2140;
 constexpr uint32_t kDelaySamples = 1000000;  // 20.8 s at 48 kHz, as with PSRAM
 constexpr int kOutCap = 65536;
 constexpr int kMaxRender = 4096;
@@ -105,7 +106,9 @@ void buildFrame(uint32_t t) {
     gFrame.keys[k] = (uint16_t)(kKeyRest + (kKeyBottom - kKeyRest) * gKeys[k].travel + 0.5f);
     gFrame.keyTimeUs[k] = t;
   }
-  for (int p = 0; p < kNumPots; ++p) gFrame.pots[p] = (uint16_t)(gPot[p] * kAdcMax + 0.5f);
+  // The dials are wired so that their reading falls as they turn up (kPotReversed).
+  for (int p = 0; p < kNumPots; ++p)
+    gFrame.pots[p] = (uint16_t)((kPotReversed[p] ? 1.0f - gPot[p] : gPot[p]) * kAdcMax + 0.5f);
   for (int s = 0; s < kNumSwitches; ++s) gFrame.switches[s] = switchRaw(gSwitch[s]);
   float pinV = gBatteryV / gCtl.settings().battDivider;
   float raw = pinV / 3.3f * kAdcMax;

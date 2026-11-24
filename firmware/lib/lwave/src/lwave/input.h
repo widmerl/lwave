@@ -100,7 +100,10 @@ class SwitchDecoder {
 /// Battery voltage, smoothed, with low / critical flags (with 0.05 V hysteresis).
 class BatteryMonitor {
  public:
-  /// Feeds a raw reading after dtS seconds.
+  /// Feeds a raw reading after dtS seconds. For the first kBatteryFastS the
+  /// voltage follows the reading directly (lightly smoothed); after that it is
+  /// smoothed over ~2 s. The low and critical warnings stay off for the first
+  /// kBatteryWarnDelayS, while the divider settles after power-up.
   void update(uint16_t raw, float dtS, const Settings& s);
   float volts() const { return volts_; }       ///< Smoothed battery voltage.
   bool low() const { return low_; }            ///< Below batt_low_v.
@@ -108,6 +111,7 @@ class BatteryMonitor {
  private:
   bool init_ = false, low_ = false, crit_ = false;
   float volts_ = 0.0f;
+  float age_ = 0.0f;  // seconds since the first reading
 };
 
 /// Finds keys held down at power-up. Uses calibrated travel (> 50 %) for

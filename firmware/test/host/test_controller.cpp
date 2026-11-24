@@ -51,9 +51,10 @@ ScanFrame frame(uint32_t t, int pressedKey = -1, uint16_t pressedValue = 3000) {
   for (int p = 0; p < kNumPots; ++p) f.pots[p] = 2048;
   f.pots[static_cast<int>(Pot::LevelSaw)] = 4075;
   f.pots[static_cast<int>(Pot::Volume)] = 4075;
-  f.pots[static_cast<int>(Pot::Attack)] = 20;
-  f.pots[static_cast<int>(Pot::Sustain)] = 4075;
-  f.pots[static_cast<int>(Pot::Release)] = 20;  // shortest release (50 ms)
+  // Dials read high at their minimum (kPotReversed); sliders read high at the top.
+  f.pots[static_cast<int>(Pot::Attack)] = 4075;   // shortest attack
+  f.pots[static_cast<int>(Pot::Sustain)] = 20;    // full sustain
+  f.pots[static_cast<int>(Pot::Release)] = 4075;  // shortest release
   for (int s = 0; s < kNumSwitches; ++s) f.switches[s] = 4095;  // position 1
   f.switches[static_cast<int>(Switch::Octave)] = (uint16_t)(4095 * 4 / 7);  // position 4
   f.switches[static_cast<int>(Switch::FilterType)] = 0;                      // position 8 = off
@@ -220,4 +221,14 @@ TEST(controller_cpu_guard_caps_and_restores_polyphony) {
   CHECK(w.ctl.voiceCap() >= kMinVoiceCap + 3 && w.ctl.voiceCap() <= kMinVoiceCap + 5);
   w.run(12000);
   CHECK(w.ctl.voiceCap() == kMaxVoices);
+}
+
+TEST(controller_calibration_reports_progress) {
+  World w(true);
+  w.ctl.boot(frame(0, keyIndexByName("D5")));  // C4 held at power-up
+  CHECK(w.ctl.mode() == Mode::Calibration);
+  w.pf.o.text.clear();
+  w.run(9000);  // release, rest, then a few seconds of sweep
+  CHECK(w.pf.o.text.find("rest stored") != std::string::npos);
+  CHECK(w.pf.o.text.find("Missing: keys") != std::string::npos);
 }

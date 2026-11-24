@@ -36,6 +36,12 @@ constexpr float kCpuLowPercent = 70.0f;
 /// The CPU guard never caps polyphony below this.
 constexpr int kMinVoiceCap = 6;
 
+/// Battery: for this long after power-up the reading is followed directly
+/// (the divider's filter capacitor is still charging), then smoothed over ~2 s.
+constexpr float kBatteryFastS = 0.5f;
+/// Battery: no low or critical warning for this long after power-up.
+constexpr float kBatteryWarnDelayS = 3.0f;
+
 /// Number of note keys on the panel.
 constexpr int kNumKeys = 48;
 

@@ -90,6 +90,7 @@ void Controller::onFrame(const ScanFrame& f) {
     int n = calibrator_.drainCues(c, 8);
     for (int i = 0; i < n; ++i) scheduleCue(c[i].hz, c[i].seconds, c[i].delayS);
     if (calibrator_.phase() == Calibrator::Phase::Done) finishCalibration();
+    else reportCalibration(f.timeUs);
   } else {
     processKeys(f);
     processControls(f, dtS);
@@ -176,11 +177,41 @@ void Controller::startCalibration() {
   off.type = NoteEvent::Type::AllOff;
   engine_->post(off);
   calibrator_.start(cal_, pf_->micros());
+  calPhaseShown_ = static_cast<int>(Calibrator::Phase::WaitRelease);
+  calPrintT_ = pf_->micros();
   pf_->out().print(
       "Calibration: release all keys and keep hands off for 2 s.\r\n"
       "Then press every key fully, turn every dial and slider to both ends,\r\n"
       "and turn every rotary switch through all 8 positions.\r\n"
       "Hold C4 (key D5) for 3 s to finish early.\r\n");
+}
+
+void Controller::reportCalibration(uint32_t t) {
+  const Calibrator::Phase ph = calibrator_.phase();
+  char buf[400];
+  if (static_cast<int>(ph) != calPhaseShown_) {
+    calPhaseShown_ = static_cast<int>(ph);
+    calPrintT_ = t;
+    if (ph == Calibrator::Phase::Rest)
+      pf_->out().print("Calibration: measuring the keys at rest (2 s), keep hands off.\r\n");
+    else if (ph == Calibrator::Phase::Sweep)
+      pf_->out().print(
+          "Calibration: rest stored. Now press every key fully, turn every dial and slider to both ends,\r\n"
+          "and turn every rotary switch slowly through all 8 positions (each new position beeps).\r\n"
+          "Progress is printed every 5 s. It saves by itself when everything is done;\r\n"
+          "hold C4 (key D5) for 3 s to finish and save early.\r\n");
+    return;
+  }
+  if ((int32_t)(t - calPrintT_) < 5000000) return;
+  calPrintT_ = t;
+  if (ph == Calibrator::Phase::WaitRelease) {
+    calibrator_.describeHeld(buf, sizeof(buf));
+    pf_->out().printf("Calibration: waiting for all keys to be released (looks pressed: %s).\r\n", buf);
+  } else if (ph == Calibrator::Phase::Sweep) {
+    calibrator_.describeMissing(buf, sizeof(buf));
+    pf_->out().printf("Calibration: %d/%d keys, %d/%d pots, %d/%d switches. Missing: %s\r\n", calibrator_.keysDone(),
+                      kNumKeys, calibrator_.potsDone(), kNumPots, calibrator_.switchesDone(), kNumSwitches, buf);
+  }
 }
 
 void Controller::finishCalibration() {
