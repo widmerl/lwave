@@ -116,9 +116,9 @@ Every 16 samples (control rate) the voice updates its LFO, pitch, pulse width, d
 | Knob | Volume | Attack time |
 | --- | --- | --- |
 | 0 % | speed: the softest strike is `vel_range_db` (24 dB) quieter | the Attack knob |
-| 33 % | speed, as at 0 % | Attack knob × `vel_attack_span`^±1: the softest strike 4 × longer, the hardest ¼ |
+| 33 % | speed, as at 0 % | Attack knob × `vel_attack_span`^±1: the softest strike 5 × longer, the hardest ⅕ |
 | 66 % | not affected by speed | as at 33 % |
-| 100 % | key depth: silent at the note-on point (`key_note_on`, 30 %), full at the bottom, as (travel past that point)^`swell_curve` (2) | the note rises with the key, but no faster than 0 to full in the Attack knob's time (Attack 1 s: a hard strike takes 1 s, a 2 s press follows the key); the decay starts once the key has arrived and the level has caught up |
+| 100 % | key depth: silent at the note-on point (`swell_note_on`, 10 %), full at the bottom, as (travel past that point)^`swell_curve` (2) | the note rises with the key, but no faster than 0 to full in the Attack knob's time (Attack 1 s: a hard strike takes 1 s, a 2 s press follows the key); the decay starts once the key has arrived and the level has caught up |
 
 Between the points the weights move in straight lines: speed's say over the volume fades out from 33 to 66 %; from 66 to 100 % the envelope attack fades out and key depth takes over, its rise limited by the Attack knob. At 100 % a slow press is a crescendo, a quick strike an attack as fast as the Attack knob allows; the level falls with the key at once (no limit), so lifting the key slowly fades the note out before it ends, and a quick lift leaves the normal release. After release the level no longer rises. The serial `p` view names the nearest point, e.g. `66 % (speed->attack)`. In the simulator, the Slow press slider makes keys go down and back up over a set time to try this.
 
@@ -170,16 +170,17 @@ LFO depth at strength 100 %:
 
 ## 5. Panel input
 
-**Keys** (`KeyProcessor`): travel 0..1 comes from `CalibrationData::keyTravel()` and works for either magnet polarity. The sensors are DRV5056 (unipolar): about 0.6 V (745 counts) with no field, rising as the magnet comes closer; on the first build a fully pressed key reads about 1.8 V. Until the keys are calibrated the firmware assumes 745 → 2150 counts. The magnet's field grows steeply near the bottom, so "travel" here is really the field between the calibrated rest and bottom readings, and the thresholds below fall deeper in the physical key travel than their percentages suggest. Each key walks Idle → Timing → On → Idle:
+**Keys** (`KeyProcessor`): travel 0..1 comes from `CalibrationData::keyTravel()` and works for either magnet polarity. The sensors are DRV5056 (unipolar): about 0.6 V (745 counts) with no field, rising as the magnet comes closer; on the first build a fully pressed key reads about 1.8 V. Until the keys are calibrated the firmware assumes 745 → 2150 counts. "Travel" here is really the field between the calibrated rest and bottom readings; on the first build it feels close to linear in the physical key travel (the magnet moves about 4 mm, from 7 to 3 mm from the sensor). Each key walks Idle → Timing → On → Idle:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `key_vel_start` | 10 % | Velocity timer starts (crossing time interpolated between samples) |
 | `key_note_on` | 30 % | Note starts; velocity from the time since the start crossing |
 | `key_note_off` | below 10 % | Note ends |
-| `vel_fast_ms` / `vel_slow_ms` | 1 ms / 40 ms | Times mapped to velocity 1 and 0 on a log scale |
+| `vel_fast_ms` / `vel_slow_ms` | 1 ms / 75 ms | Times mapped to velocity 1 and 0 on a log scale |
+| `swell_note_on` | 10 % | Note starts with the Velocity knob at 100 % |
 
-A key that turns back before 30 % plays nothing. The octave is read at note-on, so held notes keep their pitch when the octave switch moves.
+A key that turns back before 30 % plays nothing. With the Velocity knob above 66 % (`keySettingsFor()`) the note-on point moves from `key_note_on` towards `swell_note_on`, reaching it at 100 %; velocity timing starts no later than the note-on point, the note-off point stays at least 5 % below it (`kNoteOffGap`; 5 % at 100 %), and the velocity times shrink with the shorter timing distance so strike speeds still compare. The octave is read at note-on, so held notes keep their pitch when the octave switch moves.
 
 **Pots** (`PotFilter`): calibrated position, one-pole smoothing (`pot_smooth_ms`), dead band (`pot_deadband`), and exact 0 and 1 at the ends. On the first PCB the 22 dials read high when turned fully counter-clockwise, so their position is inverted (`kPotReversed` in hw_map.cpp); the 8 sliders are not. Curves are applied by `mapControls()` and pass through the three values printed on the panel:
 
@@ -350,7 +351,7 @@ Event-log lines (`EV on …`, `EV switch …`, `EV line_out …`) arrive between
 - **Line-out detect** only reports its level; its polarity and any pull-up are not yet known.
 - **Scan rate and ADC settling** (`kSettleNs` = 1.5 µs) are untested on hardware; check `scan=` in the stats view (target ≥ 2 kHz).
 - **Key thresholds and velocity times** are first guesses; tune them live with `set`.
-- **Key response vs physical travel**: the Hall reading is not linear in key travel (the field rises steeply near the bottom). If the keys feel like they only start near the bottom after calibration, lower `key_vel_start` / `key_note_on` or add a linearising curve.
+- **Key response vs physical travel**: after calibration the keys on the first build feel close to linear. If a later build feels like the keys only start near the bottom, lower `key_vel_start` / `key_note_on` or add a linearising curve.
 - **Triangle** is not band-limited. Its aliasing is low, but it may be audible on very high notes.
 - **Overdrive** runs without oversampling; heavy drive on high notes can alias.
 - **Compile check**: PlatformIO couldn't run in the build environment, so the Teensy build was checked with PJRC's current core sources and GCC 13 instead of PlatformIO's toolchain. Your first PlatformIO build is the real confirmation.
@@ -369,10 +370,11 @@ Generated from the `///` comments in the headers. Every class, function and fiel
 | `key_note_on` | 0.30 | 0.05 … 0.95 | travel where the note starts |
 | `key_note_off` | 0.10 | 0.01 … 0.9 | travel below which the note releases |
 | `vel_fast_ms` | 1.0 | 0.1 … 50.0 | travel time of the hardest strike (ms) |
-| `vel_slow_ms` | 40.0 | 1.0 … 500.0 | travel time of the softest strike (ms) |
+| `vel_slow_ms` | 75.0 | 1.0 … 500.0 | travel time of the softest strike (ms) |
 | `vel_range_db` | 24.0 | 0.0 … 60.0 | softest strike is this much quieter (dB) |
-| `vel_attack_span` | 4.0 | 1.0 … 16.0 | attack factor from strike speed (Velocity knob 33-66 %) |
+| `vel_attack_span` | 5.0 | 1.0 … 16.0 | attack factor from strike speed (Velocity knob 33-66 %) |
 | `swell_curve` | 2.0 | 0.25 … 4.0 | Velocity knob 100 %: level = key travel ^ this |
+| `swell_note_on` | 0.10 | 0.03 … 0.95 | Velocity knob 100 %: travel where the note starts |
 | `depth_mode` | 1.0 | 0.0 … 2.0 | key depth: 0 off, 1 level, 2 sustain only |
 | `depth_freeze_ms` | 20.0 | 0.0 … 60.0 | key depth = highest travel in this window (ms) |
 | `voices` | 20.0 | 1.0 … kMaxVoices | polyphony in use |
@@ -597,10 +599,10 @@ What the control side sends to the sound engine: a parameter snapshot (engine un
     - `float volume = 1.0f` — Master volume, linear gain.
     - `int voices = 10` — Polyphony in use.
     - `float velRangeDb = 24.0f` — See Settings::velRangeDb.
-    - `float velAttackSpan = 4.0f` — See Settings::velAttackSpan.
+    - `float velAttackSpan = 5.0f` — See Settings::velAttackSpan.
     - `int depthMode = 1` — See Settings::depthMode.
     - `float swellCurve = 2.0f` — See Settings::swellCurve.
-    - `float swellStart = 0.3f` — Key travel where depth-driven level starts (Settings::keyNoteOn).
+    - `float swellStart = 0.3f` — Key travel where depth-driven level starts: the note-on point (noteOnPoint()).
     - `float filterEnvOct = 6.0f` — See Settings::filterEnvOct.
     - `float meterFallDbS = 40.0f` — See Settings::meterFallDbS.
     - `int detuneCopies = 2` — See Settings::detuneCopies (1..3).
@@ -687,7 +689,10 @@ Turning raw readings into notes, knob positions, switch positions and battery st
     - `float velocity` — 0..1 (note-on only).
     - `float depth` — Travel at note-on, or the frozen depth for the release.
     - `float travelMs` — Measured start → note-on time (note-on only).
-- **class `KeyProcessor`** — Note detection, velocity and depth for all keys.  Each key walks Idle → Timing (passed key_vel_start) → On (passed key_note_on) → Idle (fell below key_note_off). Velocity comes from the time between the two upward crossings, interpolated between samples. A key that turns back before key_note_on plays nothing.
+- `constexpr float kNoteOffGap = 0.05f` — Smallest gap between the note-on and the note-off point (fraction of key travel), so a key resting near the note-on point does not flutter.
+- `float noteOnPoint(const Settings& s, float depthWeight)` — Key travel where notes start, for the Velocity knob's depth weight (velocityKnobWeights().depthIsLevel: 0 up to 66 %, 1 at 100 %): moves from key_note_on to swell_note_on as the weight rises.
+- `Settings keySettingsFor(const Settings& s, float depthWeight)` — The key settings to use for the Velocity knob's depth weight: note-on at noteOnPoint(), velocity timing starting no later than that, note-off at least kNoteOffGap below it, and vel_fast_ms / vel_slow_ms scaled with the shorter timing distance so strike speeds still compare. Weight 0 returns s unchanged.
+- **class `KeyProcessor`** — Note detection, velocity and depth for all keys.  Each key walks Idle → Timing (passed key_vel_start) → On (passed key_note_on) → Idle (fell below key_note_off). Velocity comes from the time between the two upward crossings, interpolated between samples. A key that turns back before key_note_on plays nothing. The controller passes keySettingsFor() as the settings, so the points follow the Velocity knob.
     - `void reset()` — Clears all key states.
     - `bool update(int k, float travel, uint32_t tUs, const Settings& s, KeyEvent& ev)` — Feeds one reading of key k (travel 0..1 at time tUs). Returns true and fills ev when a note starts or ends.
     - `float depth(int k) const` — Key depth of key k (0..1): the highest travel within the last depth_freeze_ms, so lifting the key does not dip the level before the note ends.
@@ -761,10 +766,11 @@ Tunable settings. These are the values you are expected to experiment with on th
     - `float keyNoteOn = 0.30f` — Travel where the note starts.
     - `float keyNoteOff = 0.10f` — Travel below which the note is released.
     - `float velFastMs = 1.0f` — Travel time (start → note-on) that counts as the hardest strike.
-    - `float velSlowMs = 40.0f` — Travel time that counts as the softest strike.
+    - `float velSlowMs = 75.0f` — Travel time that counts as the softest strike.
     - `float velRangeDb = 24.0f` — How much quieter the softest strike is than the hardest.
-    - `float velAttackSpan = 4.0f` — Attack-time factor where the Velocity knob gives speed full say over the attack (33-66 %): softest ×span, hardest ÷span.
+    - `float velAttackSpan = 5.0f` — Attack-time factor where the Velocity knob gives speed full say over the attack (33-66 %): softest ×span, hardest ÷span.
     - `float swellCurve = 2.0f` — Velocity knob 100 %: level = (travel past the note-on point)^curve. 1 = linear, 2 = more even in loudness.
+    - `float swellNoteOn = 0.10f` — Velocity knob 100 %: travel where the note (silent at first) starts. From 66 to 100 % the note-on point moves here from key_note_on.
     - `float depthMode = 1.0f` — Key depth: 0 = ignored, 1 = scales the note level, 2 = scales sustain only.
     - `float depthFreezeMs = 20.0f` — Key depth = highest travel within this window, so lifting a key does not dip the level; frozen at release.
     - `float voices = 20.0f` — Polyphony in use (1 .. kMaxVoices). Lower it if the cpu figure in the stats view gets high.

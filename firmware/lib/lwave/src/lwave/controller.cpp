@@ -174,10 +174,13 @@ void Controller::updateCpuGuard(uint32_t t) {
 
 void Controller::processKeys(const ScanFrame& f) {
   int octave = octaveShiftSemitones(panel_.sw[static_cast<int>(Switch::Octave)]);
+  // Towards Velocity knob 100 % notes start earlier (swell_note_on).
+  const float depthW = velocityKnobWeights(panel_.pot[static_cast<int>(Pot::Velocity)]).depthIsLevel;
+  const Settings ks = keySettingsFor(settings_, depthW);
   for (int k = 0; k < kNumKeys; ++k) {
     KeyEvent ev;
     float travel = cal_.keyTravel(k, f.keys[k]);
-    if (!keys_.update(k, travel, f.keyTimeUs[k], settings_, ev)) continue;
+    if (!keys_.update(k, travel, f.keyTimeUs[k], ks, ev)) continue;
     NoteEvent ne;
     ne.key = (uint8_t)k;
     ne.depth = ev.depth;

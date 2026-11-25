@@ -13,6 +13,7 @@ const SettingInfo kSettingInfos[] = {
     {"vel_range_db", &Settings::velRangeDb, 0.0f, 60.0f, "softest strike is this much quieter (dB)"},
     {"vel_attack_span", &Settings::velAttackSpan, 1.0f, 16.0f, "attack factor from strike speed (Velocity knob 33-66 %)"},
     {"swell_curve", &Settings::swellCurve, 0.25f, 4.0f, "Velocity knob 100 %: level = key travel ^ this"},
+    {"swell_note_on", &Settings::swellNoteOn, 0.03f, 0.95f, "Velocity knob 100 %: travel where the note starts"},
     {"depth_mode", &Settings::depthMode, 0.0f, 2.0f, "key depth: 0 off, 1 level, 2 sustain only"},
     {"depth_freeze_ms", &Settings::depthFreezeMs, 0.0f, 60.0f, "key depth = highest travel in this window (ms)"},
     {"voices", &Settings::voices, 1.0f, (float)kMaxVoices, "polyphony in use"},

@@ -64,8 +64,41 @@ TEST(keys_velocity_mapping_ends) {
   Settings s;
   CHECK_NEAR(KeyProcessor::velocityFromMs(0.5f, s), 1.0, 1e-6);
   CHECK_NEAR(KeyProcessor::velocityFromMs(100.0f, s), 0.0, 1e-6);
-  float mid = KeyProcessor::velocityFromMs(6.32f, s);  // geometric middle of 1..40 ms
+  float mid = KeyProcessor::velocityFromMs(sqrtf(s.velFastMs * s.velSlowMs), s);  // geometric middle
   CHECK_NEAR(mid, 0.5, 0.02);
+}
+
+TEST(keys_note_on_moves_to_swell_note_on_towards_velocity_100) {
+  Settings s;  // note-on 30 %, timing from 10 %, note-off 10 %, swell_note_on 10 %
+  Settings k0 = keySettingsFor(s, 0.0f);
+  CHECK_NEAR(k0.keyNoteOn, 0.30, 1e-6);
+  CHECK_NEAR(k0.keyNoteOff, 0.10, 1e-6);
+  CHECK_NEAR(k0.velSlowMs, s.velSlowMs, 1e-4);
+  Settings kh = keySettingsFor(s, 0.5f);  // halfway: note-on 20 %, timing distance halved
+  CHECK_NEAR(kh.keyNoteOn, 0.20, 1e-6);
+  CHECK_NEAR(kh.keyNoteOff, 0.10, 1e-6);
+  CHECK_NEAR(kh.velSlowMs, 0.5f * s.velSlowMs, 1e-3);
+  Settings k1 = keySettingsFor(s, 1.0f);  // 100 %: note-on 10 %, note-off 5 %
+  CHECK_NEAR(k1.keyNoteOn, 0.10, 1e-6);
+  CHECK_NEAR(k1.keyNoteOff, 0.05, 1e-6);
+  CHECK(k1.keyVelStart <= k1.keyNoteOn);
+
+  // A light press to 15 % plays at 100 %, but not at 0 %.
+  CHECK(press(30.0f, 0.15f, 50, 10, k0).ons == 0);
+  PressResult r = press(30.0f, 0.15f, 50, 10, k1);
+  CHECK(r.ons == 1 && r.offs == 1);
+  // Halfway at 100 %: a key resting between 5 and 10 % neither starts nor ends a note.
+  CHECK(press(30.0f, 0.08f, 50, 10, k1).ons == 0);
+  KeyProcessor kp;
+  kp.reset();
+  KeyEvent ev;
+  int ons = 0, offs = 0;
+  const float path[] = {0.0f, 0.12f, 0.12f, 0.07f, 0.11f, 0.06f, 0.09f, 0.03f};
+  uint32_t t = 0;
+  for (float x : path)
+    for (int i = 0; i < 20; ++i, t += 500)
+      if (kp.update(0, x, t, k1, ev)) (ev.on ? ons : offs)++;
+  CHECK(ons == 1 && offs == 1);  // one note, ended only below 5 %
 }
 
 TEST(keys_reversed_polarity_calibration) {

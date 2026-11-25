@@ -16,6 +16,29 @@ float crossingTime(float x0, float x1, uint32_t t0, uint32_t t1, float thr) {
 }
 }  // namespace
 
+// ---- Thresholds for the Velocity knob --------------------------------------
+float noteOnPoint(const Settings& s, float w) {
+  w = w < 0.0f ? 0.0f : (w > 1.0f ? 1.0f : w);
+  return s.keyNoteOn + (s.swellNoteOn - s.keyNoteOn) * w;
+}
+
+Settings keySettingsFor(const Settings& s, float w) {
+  if (w <= 0.0f) return s;
+  Settings k = s;
+  k.keyNoteOn = noteOnPoint(s, w);
+  if (k.keyVelStart > k.keyNoteOn) k.keyVelStart = k.keyNoteOn;
+  const float maxOff = k.keyNoteOn - kNoteOffGap;
+  if (k.keyNoteOff > maxOff) k.keyNoteOff = maxOff > 0.01f ? maxOff : 0.01f;
+  const float span = s.keyNoteOn - s.keyVelStart;
+  if (span > 0.0f) {
+    float ratio = (k.keyNoteOn - k.keyVelStart) / span;
+    if (ratio < 0.01f) ratio = 0.01f;
+    k.velFastMs *= ratio;
+    k.velSlowMs *= ratio;
+  }
+  return k;
+}
+
 // ---- KeyProcessor ------------------------------------------------------------
 void KeyProcessor::reset() {
   for (Key& k : keys_) k = Key();

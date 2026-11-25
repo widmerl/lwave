@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include "lwave/curves.h"
 #include "lwave/hw_map.h"
+#include "lwave/input.h"
+#include "lwave/voice.h"
 
 namespace lw {
 
@@ -147,7 +149,7 @@ void mapControls(const PanelState& panel, const Settings& s, float maxDelayS, En
   o.velAttackSpan = s.velAttackSpan;
   o.depthMode = (int)(s.depthMode + 0.5f);
   o.swellCurve = s.swellCurve;
-  o.swellStart = s.keyNoteOn;
+  o.swellStart = noteOnPoint(s, velocityKnobWeights(o.velocityKnob).depthIsLevel);  // silent where the note starts
   o.filterEnvOct = s.filterEnvOct;
   o.meterFallDbS = s.meterFallDbS;
   int copies = (int)(s.detuneCopies + 0.5f);

@@ -29,12 +29,28 @@ struct KeyEvent {
   float travelMs;  ///< Measured start → note-on time (note-on only).
 };
 
+/// Smallest gap between the note-on and the note-off point (fraction of key
+/// travel), so a key resting near the note-on point does not flutter.
+constexpr float kNoteOffGap = 0.05f;
+
+/// Key travel where notes start, for the Velocity knob's depth weight
+/// (velocityKnobWeights().depthIsLevel: 0 up to 66 %, 1 at 100 %): moves from
+/// key_note_on to swell_note_on as the weight rises.
+float noteOnPoint(const Settings& s, float depthWeight);
+
+/// The key settings to use for the Velocity knob's depth weight: note-on at
+/// noteOnPoint(), velocity timing starting no later than that, note-off at least
+/// kNoteOffGap below it, and vel_fast_ms / vel_slow_ms scaled with the shorter
+/// timing distance so strike speeds still compare. Weight 0 returns s unchanged.
+Settings keySettingsFor(const Settings& s, float depthWeight);
+
 /// Note detection, velocity and depth for all keys.
 ///
 /// Each key walks Idle → Timing (passed key_vel_start) → On (passed
 /// key_note_on) → Idle (fell below key_note_off). Velocity comes from the time
 /// between the two upward crossings, interpolated between samples. A key that
-/// turns back before key_note_on plays nothing.
+/// turns back before key_note_on plays nothing. The controller passes
+/// keySettingsFor() as the settings, so the points follow the Velocity knob.
 class KeyProcessor {
  public:
   /// Clears all key states.

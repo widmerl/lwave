@@ -15,10 +15,11 @@ struct Settings {
   float keyNoteOn = 0.30f;     ///< Travel where the note starts.
   float keyNoteOff = 0.10f;    ///< Travel below which the note is released.
   float velFastMs = 1.0f;      ///< Travel time (start → note-on) that counts as the hardest strike.
-  float velSlowMs = 40.0f;     ///< Travel time that counts as the softest strike.
+  float velSlowMs = 75.0f;     ///< Travel time that counts as the softest strike.
   float velRangeDb = 24.0f;    ///< How much quieter the softest strike is than the hardest.
-  float velAttackSpan = 4.0f;  ///< Attack-time factor where the Velocity knob gives speed full say over the attack (33-66 %): softest ×span, hardest ÷span.
+  float velAttackSpan = 5.0f;  ///< Attack-time factor where the Velocity knob gives speed full say over the attack (33-66 %): softest ×span, hardest ÷span.
   float swellCurve = 2.0f;     ///< Velocity knob 100 %: level = (travel past the note-on point)^curve. 1 = linear, 2 = more even in loudness.
+  float swellNoteOn = 0.10f;   ///< Velocity knob 100 %: travel where the note (silent at first) starts. From 66 to 100 % the note-on point moves here from key_note_on.
   float depthMode = 1.0f;      ///< Key depth: 0 = ignored, 1 = scales the note level, 2 = scales sustain only.
   float depthFreezeMs = 20.0f; ///< Key depth = highest travel within this window, so lifting a key does not dip the level; frozen at release.
   // Voices

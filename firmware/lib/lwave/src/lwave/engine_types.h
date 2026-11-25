@@ -53,10 +53,10 @@ struct EngineParams {
   // From Settings
   int voices = 10;                   ///< Polyphony in use.
   float velRangeDb = 24.0f;          ///< See Settings::velRangeDb.
-  float velAttackSpan = 4.0f;        ///< See Settings::velAttackSpan.
+  float velAttackSpan = 5.0f;        ///< See Settings::velAttackSpan.
   int depthMode = 1;                 ///< See Settings::depthMode.
   float swellCurve = 2.0f;           ///< See Settings::swellCurve.
-  float swellStart = 0.3f;           ///< Key travel where depth-driven level starts (Settings::keyNoteOn).
+  float swellStart = 0.3f;           ///< Key travel where depth-driven level starts: the note-on point (noteOnPoint()).
   float filterEnvOct = 6.0f;         ///< See Settings::filterEnvOct.
   float meterFallDbS = 40.0f;        ///< See Settings::meterFallDbS.
   int detuneCopies = 2;              ///< See Settings::detuneCopies (1..3).

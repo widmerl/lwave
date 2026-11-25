@@ -47,6 +47,8 @@ CalibrationData idealCal() {
   return c;
 }
 
+uint16_t gVelocityRaw = 2048;  // Velocity dial near 50 % (dials read high at their minimum)
+
 ScanFrame frame(uint32_t t, int pressedKey = -1, uint16_t pressedValue = 3000) {
   ScanFrame f{};
   for (int k = 0; k < kNumKeys; ++k) { f.keys[k] = 1000; f.keyTimeUs[k] = t; }
@@ -58,6 +60,7 @@ ScanFrame frame(uint32_t t, int pressedKey = -1, uint16_t pressedValue = 3000) {
   f.pots[static_cast<int>(Pot::Attack)] = 4075;   // shortest attack
   f.pots[static_cast<int>(Pot::Sustain)] = 20;    // full sustain
   f.pots[static_cast<int>(Pot::Release)] = 4075;  // shortest release
+  f.pots[static_cast<int>(Pot::Velocity)] = gVelocityRaw;
   for (int s = 0; s < kNumSwitches; ++s) f.switches[s] = 4095;  // position 1
   f.switches[static_cast<int>(Switch::Octave)] = (uint16_t)(4095 * 4 / 7);  // position 4
   f.switches[static_cast<int>(Switch::FilterType)] = 0;                      // position 8 = off
@@ -129,6 +132,23 @@ TEST(controller_plays_a_key) {
   CHECK(w.pf.leds[0]);  // meter shows output
   w.run(600);           // released
   CHECK(w.engine.activeVoices() == 0);
+}
+
+TEST(controller_velocity_100_percent_notes_start_at_10_percent) {
+  int key = keyIndexByName("D5");
+  for (int pass = 0; pass < 2; ++pass) {
+    gVelocityRaw = pass ? 20 : 2048;  // 100 % / 50 %
+    World w(true);
+    w.ctl.boot(frame(0));
+    w.run(30);
+    w.run(100, key, 1300);  // 15 % travel (rest 1000, bottom 3000)
+    CHECK(w.engine.activeVoices() == (pass ? 1 : 0));
+    w.run(100, key, 1140);  // 7 %: still on at 100 % (note-off below 5 %)
+    CHECK(w.engine.activeVoices() == (pass ? 1 : 0));
+    w.run(300, key, 1040);  // 2 %: released
+    CHECK(w.engine.activeVoices() == 0);
+  }
+  gVelocityRaw = 2048;
 }
 
 TEST(controller_console_set_save_and_get) {

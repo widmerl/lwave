@@ -502,7 +502,7 @@ TEST(velocity_knob_speed_sets_volume_below_66_percent_only) {
 }
 
 TEST(velocity_knob_speed_scales_attack_from_33_percent) {
-  // Attack knob 0.1 s; at 33 % the softest strike gets x4 (0.4 s), the hardest /4 (25 ms).
+  // Attack knob 0.1 s; at 33 % the softest strike gets x5 (0.5 s), the hardest /5 (20 ms).
   for (int pass = 0; pass < 2; ++pass) {
     Rig r;
     basePatch(r.p());
