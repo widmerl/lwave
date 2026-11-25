@@ -186,7 +186,7 @@ Without PSRAM the delay buffer holds 2.5 s, and the delay-time knob ends there (
 
 **Switches** (`SwitchDecoder`): nearest calibrated voltage, accepted after `switch_debounce_ms` (20 ms) of stability.
 
-**Battery** (`BatteryMonitor`): pin 15 × 3.3 V / 4095 × `batt_div`. For the first 0.5 s after power-up the voltage follows the reading directly, because the divider's filter capacitor is still charging; after that it is smoothed over ~2 s. LED 8 lights below `batt_low_v` (3.4 V) and blinks below `batt_crit_v` (3.2 V), with 0.05 V hysteresis, but never during the first 3 s after power-up (`kBatteryWarnDelayS`).
+**Battery** (`BatteryMonitor`): pin 15 × 3.3 V / 4095 × `batt_div`. For the first 0.5 s after power-up the voltage follows the reading directly, because the divider's filter capacitor is still charging; after that it is smoothed over ~2 s. LED 8 lights below `batt_low_v` (3.4 V) and blinks below `batt_crit_v` (3.2 V), with 0.05 V hysteresis, but never during the first second after power-up (`kBatteryWarnDelayS`). A battery that stays critical for 5 s switches the synth off (section 6, Power).
 
 **LEDs**: 0–6 light at `meter_floor_db` + n × `meter_step_db` (−42 dBFS in 6 dB steps). LED 7 (red) lights at −1 dBFS or when the limiter is working. The meter follows peaks at once and falls at `meter_fall_db_s` (40 dB/s, one LED every 0.15 s). During calibration, LEDs 0–7 show progress.
 
@@ -233,9 +233,24 @@ The serial console follows along: it prints each phase, and every 5 s during the
 
 The stats view shows mode, scan rate, audio CPU load (peak of the last 100 ms), sounding voices, the CPU guard's voice cap, output level, limiter reduction, battery voltage and line-out state. All settings are listed in the generated table in section 11.
 
+**Power** (`PowerManager`, power.h). For the next hardware revision; on the first build pins 32 and 33 are unconnected, so it has no effect there.
+
+| Pin | Use |
+| --- | --- |
+| 32 | Power button input, high = pressed. The internal pull-down keeps it released while nothing is connected. |
+| 33 | Power hold output: low at start-up, high 2 s after start-up (`kPowerLatchS`) so the power stays on once the button is released; low again to switch off. |
+
+The synth switches itself off when:
+
+- the power button is held for 2 s (`kPowerButtonHoldS`). The press that switched it on does not count: the button must have been released once since start-up;
+- it has not been used for `auto_off_min` minutes (default 60; `set auto_off_min 0` turns this off). Use means a note played, a pot moved by more than 3 % of its travel (`kActivityPotStep`), a rotary switch turned, a power-button press, or a line typed on the serial console. There is no auto-off during calibration;
+- the battery has been critically low (below `batt_crit_v`) for 5 s (`kPowerBatteryOffS`). This happens once per low-battery episode.
+
+Switching off releases all notes, plays three falling notes, turns all LEDs off, prints the reason on the serial console, and drops pin 33 after 0.6 s (`kPowerOffDelayS`, the length of the sound). After a long press the power goes when the button is released. If the synth is still running after that (powered over USB, or no power circuit fitted), a note, a pot or switch move, a console line or a new button press switches it on again and pin 33 goes high. `info` shows the power state and how long the synth has been unused; the stats view shows `pwr_btn` (button level) and `idle` (minutes unused).
+
 ## 7. Storage
 
-`PersistentBlob` (storage_format.h) holds the calibration and settings, with a magic number, layout version and CRC-32. About 560 bytes are written byte by byte to the Teensy's emulated EEPROM (4284 bytes) and read back to verify. If the magic, version or CRC doesn't match, defaults are used. Bump `kBlobVersion` whenever `CalibrationData` or `Settings` change layout.
+`PersistentBlob` (storage_format.h) holds the calibration and settings, with a magic number, layout version and CRC-32. About 1 KB is written byte by byte to the Teensy's emulated EEPROM (4284 bytes) and read back to verify. Settings are stored as (hash of the console name, value) pairs, so a firmware that adds or removes settings keeps the others: unknown entries are ignored and missing ones keep their defaults. Blobs from versions 1–4, which stored the settings as a raw struct, still give their calibration; their settings reset to defaults and the console says so (`save` stores them in the new format). If the magic or CRC doesn't match, defaults are used. Bump `kBlobVersion` only if the blob layout itself changes; `CalibrationData` must stay at offset 8.
 
 ## 8. Teensy resources
 
@@ -249,8 +264,10 @@ The stats view shows mode, scan rate, audio CPU load (peak of the last 100 ms), 
 | 10, 11, 12, 24, 27, 28, 29, 30, 31 | LEDs 0 … 8 (pin → LED → GND, high = on) |
 | 7, 8, 18, 19, 20, 21, 23 | SGTL5000: I2S data, I2C, clocks (as on the Audio Shield) |
 | 13 | On-board LED: alive blink at 1 Hz |
+| 32 | Power button (input, pull-down; next hardware revision) |
+| 33 | Power hold output (next hardware revision) |
 
-Memory from the compile check (no PSRAM): flash 123 KB; RAM1 317 of 512 KB (89 KB code in a 96 KB block, 221 KB data); RAM2 231 of 512 KB (the 2.5 s delay fallback). With PSRAM fitted, `setup()` allocates a 20.5 s delay line there with `extmem_malloc()`, and the delay-time knob uses its full 10 s range.
+Memory from the compile check (no PSRAM): flash 130 KB; RAM1 320 of 512 KB (94 KB code in a 96 KB block, 224 KB data); RAM2 231 of 512 KB (the 2.5 s delay fallback). With PSRAM fitted, `setup()` allocates a 20.5 s delay line there with `extmem_malloc()`, and the delay-time knob uses its full 10 s range.
 
 CPU estimate from executed ARM instructions (the engine compiled for Thumb-2 with hardware float, counted under QEMU). One 128-sample block lasts 2.9 ms, which is about 1.74 million cycles at 600 MHz.
 
@@ -267,7 +284,7 @@ The Cortex-M7 runs this kind of float code at roughly 1 to 1.5 cycles per instru
 
 ## 9. Tests and renders
 
-`lwave_tests` covers knob curves and mapping, settings, storage, the lock-free handoff, the hardware tables, key processing (velocity, half presses, depth freeze, reversed polarity), pots, switches, battery, boot detection, the full calibration routine, the engine (gain staging, envelope timing, every filter × LFO shape combination finite and bounded, voice stealing, fade-out order when the voice limit drops, phase-aligned duplicate pitches, PWM extremes, velocity level, LFO pitch settling), and the controller end to end with a fake platform (boot modes, playing a key, console, debug stream, battery LED, `MON` line format, CPU guard). `firmware/tools/sim/test_sim.js` checks the WebAssembly build of the same code.
+`lwave_tests` covers knob curves and mapping, settings, storage, the lock-free handoff, the hardware tables, key processing (velocity, half presses, depth freeze, reversed polarity), pots, switches, battery, boot detection, the full calibration routine, the engine (gain staging, envelope timing, every filter × LFO shape combination finite and bounded, voice stealing, fade-out order when the voice limit drops, phase-aligned duplicate pitches, PWM extremes, velocity level, LFO pitch settling), and the controller end to end with a fake platform (boot modes, playing a key, console, debug stream, battery LED, `MON` line format, CPU guard, power hold and auto-off). `test_power.cpp` covers the soft-power state machine (latch, long press, button bounce, hour-long idle, low battery); storage tests cover settings stored by name and reading the calibration from older blobs. `firmware/tools/sim/test_sim.js` checks the WebAssembly build of the same code.
 
 `lwave_render` writes six demo scenes: Tonnetz triads, the eight filter types, the eight LFO shapes on pitch, the effects, velocity, and a pad.
 
@@ -367,6 +384,7 @@ Generated from the `///` comments in the headers. Every class, function and fiel
 | `detune_upper_c` | 75.0 | 0.0 … 300.0 | 2 copies: upper copy at full knob (cents above) |
 | `osc_random_phase` | 0.0 | 0.0 … 1.0 | 1 = random oscillator start phase per note |
 | `hp_volume` | 0.6 | 0.0 … 1.0 | codec headphone volume (0-1) |
+| `auto_off_min` | 60.0 | 0.0 … 1440.0 | switch off after this many minutes unused (0 = never) |
 | `debug_rate_hz` | 50.0 | 1.0 … 200.0 | debug stream rate (Hz) |
 
 ### Portable core (lib/lwave/src/lwave)
@@ -438,7 +456,13 @@ Compile-time configuration. Everything here is fixed at build time. Values you m
 - `constexpr float kCpuLowPercent = 70.0f` — … and below this load it rises again by one voice every 0.5 s.
 - `constexpr int kMinVoiceCap = 6` — The CPU guard never caps polyphony below this.
 - `constexpr float kBatteryFastS = 0.5f` — Battery: for this long after power-up the reading is followed directly (the divider's filter capacitor is still charging), then smoothed over ~2 s.
-- `constexpr float kBatteryWarnDelayS = 3.0f` — Battery: no low or critical warning for this long after power-up.
+- `constexpr float kBatteryWarnDelayS = 1.0f` — Battery: no low or critical warning for this long after power-up.
+- `constexpr float kPowerLatchS = 2.0f` — Power: the hold output (pin 33) goes high this long after start-up, so the power stays on once the power button is released.
+- `constexpr float kPowerButtonHoldS = 2.0f` — Power: holding the power button this long switches off.
+- `constexpr float kPowerButtonDebounceS = 0.02f` — Power: the button must be steady this long to count as pressed or released.
+- `constexpr float kPowerBatteryOffS = 5.0f` — Power: the battery must stay critically low this long before switching off.
+- `constexpr float kPowerOffDelayS = 0.6f` — Power: after deciding to switch off, the hold output drops this much later (time for the switch-off sound).
+- `constexpr float kActivityPotStep = 0.03f` — Power: a pot must move this far (fraction of its travel) to count as use.
 - `constexpr int kNumKeys = 48` — Number of note keys on the panel.
 - `constexpr int kNumPots = 30` — Number of potentiometers: 22 dials + 8 sliders.
 - `constexpr int kNumSwitches = 4` — Number of 8-position rotary switches.
@@ -486,7 +510,10 @@ The controller: everything between the scanner and the sound engine. Boot modes,
     - `const Calibrator& calibrator() const` — The calibrator (for progress display and tests).
     - `int voiceCap() const` — Polyphony cap from the CPU guard (kMaxVoices when the CPU load is fine).
     - `float cpuPercent() const` — Audio CPU load in percent (peak of the last 100 ms window), -1 if unknown.
+    - `const PowerManager& power() const` — Soft-power state (power button, hold output, auto-off).
     - `void reportCalibration(uint32_t t)` — Prints calibration phase changes and, every 5 s, what is still missing.
+    - `void updatePower(const ScanFrame& f, uint32_t dtUs)` — Feeds the power manager (button, use, battery) and drives the hold output.
+    - `void checkPotUse()` — Notes use of the panel: a pot moved more than kActivityPotStep since the last use.
     - `void updateCpuGuard(uint32_t t)` — Every 100 ms: reads the audio CPU load and lowers the polyphony cap while it is above kCpuHighPercent; raises it again while below kCpuLowPercent.
     - `void printMonitor(const ScanFrame& f)` — One machine-readable MON line for the browser monitor (see docs/REFERENCE.md).
 
@@ -614,6 +641,8 @@ Hardware map: which panel control sits on which mux channel or Teensy pin, and w
 - `constexpr uint8_t kBatteryPin = 15` — Battery voltage sense (analog, through a divider).
 - `constexpr uint8_t kLineOutDetectPin = 9` — Line-out plug detect (digital input).
 - `constexpr uint8_t kOnboardLedPin = 13` — Teensy on-board LED (not wired on the panel, used for the alive blink).
+- `constexpr uint8_t kPowerButtonPin = 32` — Power button (digital input, high = pressed; internal pull-down). Next hardware revision.
+- `constexpr uint8_t kPowerHoldPin = 33` — Power hold output: high keeps the power on, low switches off. Next hardware revision.
 - `extern const AnalogSource kPotSources[kNumPots]` — Source of each pot, indexed by Pot.
 - `extern const AnalogSource kSwitchSources[kNumSwitches]` — Source of each rotary switch, indexed by Switch.
 - `extern const KeyInfo kKeys[kNumKeys]` — All 48 keys, in net-name order A1..F7.
@@ -638,6 +667,7 @@ Turning raw readings into notes, knob positions, switch positions and battery st
     - `uint16_t switches[kNumSwitches]` — Raw switch readings, indexed by Switch.
     - `uint16_t battery` — Raw battery-sense reading.
     - `bool lineOut` — Line-out detect pin level.
+    - `bool powerButton` — Power button pressed (pin 32 high).
     - `uint32_t timeUs` — When the scan finished.
 - **struct `KeyEvent`** — A note-on or note-off detected by the KeyProcessor.
     - `bool on` — true = note-on, false = note-off.
@@ -684,12 +714,37 @@ What the controller needs from the hardware (or from a simulator / test harness)
     - `virtual float audioCpuPercent()` — Audio CPU load in percent (maximum since last call), or -1 if unknown.
     - `virtual const char* describe()` — One line describing the hardware (e.g. "Teensy 4.1, PSRAM 8 MB").
     - `virtual TextOut& out()` — Console output.
+    - `virtual void setPowerHold(bool on)` — Drives the power hold output (pin 33): true keeps the power on, false switches it off. Does nothing where there is no such output.
+
+#### `power.h`
+
+Soft power: the power button (pin 32), the power hold output (pin 33), switching off after a long press, after an hour without use, or when the battery is critically low.
+
+- **enum class `PowerOffReason`** — Why the synth switched itself off.
+    - `None,` — Not switched off.
+    - `Button,` — Power button held for kPowerButtonHoldS.
+    - `Idle,` — No use for auto_off_min minutes.
+    - `Battery,` — Battery critically low for kPowerBatteryOffS.
+- **class `PowerManager`** — The soft-power state machine. Plain logic, fed once per scan: - Starting: the hold output is low; after kPowerLatchS it goes high (On), so the power stays on once the button that switched it on is released. - On: holding the button for kPowerButtonHoldS, no use for the auto-off time, or a critically low battery for kPowerBatteryOffS switches Off. The button only counts after it has been released once, so the press that switched the synth on cannot switch it off again. - Off: the hold output drops after kPowerOffDelayS. On the next hardware this cuts the power once the button is up. If the synth keeps running (USB power, or no power circuit yet), any use or a new button press switches it back On.
+- **enum class `State`** — State of the soft power.
+- **enum class `Event`** — What happened in the last update().
+    - `None,` — Nothing.
+    - `Latched,` — Start-up finished: the hold output went high.
+    - `SwitchedOff,` — Decided to switch off (see offReason()).
+    - `Woke,` — Still running after switching off, and used again: on again.
+    - `Event update(uint32_t dtUs, bool button, bool used, bool batteryCritical, float autoOffMin)` — Feeds one scan. dtUs: time since the last call; button: power button pressed; used: the player did something this scan (key, pot, switch, console); batteryCritical: from BatteryMonitor; autoOffMin: setting auto_off_min (0 = never). Returns what happened.
+    - `bool holdPower() const` — Level for the power hold output: true = keep the power on.
+    - `State state() const` — Current state.
+    - `PowerOffReason offReason() const` — Why it last switched off.
+    - `float idleSeconds() const` — Seconds since the last use.
+    - `float uptimeSeconds() const` — Seconds since start-up.
+- `const char* powerOffReasonText(PowerOffReason r)` — Short text for a reason, e.g. "power button held".
 
 #### `settings.h`
 
 Tunable settings. These are the values you are expected to experiment with on the hardware. All are floats so one console command (`set <name> <value>`) handles every one of them; they are saved together with the calibration (`save`).
 
-- **struct `Settings`** — Every tunable value. Plain data: it is copied byte-for-byte into storage.
+- **struct `Settings`** — Every tunable value. Stored by console name (see storage_format.h), so adding a setting keeps the others and the calibration.
     - `float keyVelStart = 0.10f` — Travel where velocity timing starts.
     - `float keyNoteOn = 0.30f` — Travel where the note starts.
     - `float keyNoteOff = 0.10f` — Travel below which the note is released.
@@ -718,6 +773,7 @@ Tunable settings. These are the values you are expected to experiment with on th
     - `float detuneUpperDb = -6.0f` — With 2 copies: level of the upper copy relative to the main one.
     - `float oscRandomPhase = 0.0f` — 1 = oscillators start at random phases on every note (like free-running analog); 0 = all start together.
     - `float hpVolume = 0.6f` — SGTL5000 headphone volume (0..1), fixed; the master slider works digitally.
+    - `float autoOffMin = 60.0f` — Switch off after this many minutes without use (keys, pots, switches, console); 0 = never.
     - `float debugRateHz = 50.0f` — Debug stream update rate.
 - **struct `SettingInfo`** — Description of one setting for the console.
     - `const char* name` — Console name, e.g. "key_note_on".
@@ -735,18 +791,29 @@ Tunable settings. These are the values you are expected to experiment with on th
 
 The byte layout saved in EEPROM: calibration + settings, with a magic number, version and CRC-32.
 
-- **struct `PersistentBlob`** — Everything that survives a power cycle.
+- **struct `StoredSetting`** — One stored setting: a hash of its console name and its value.
+    - `uint32_t nameHash` — settingNameHash() of the console name.
+    - `float value` — Value.
+- `constexpr int kMaxStoredSettings = 64` — Most settings the blob can hold.
+- **struct `PersistentBlob`** — Everything that survives a power cycle. Settings are stored by name, so a firmware with new or removed settings keeps the others and the calibration.
     - `uint32_t magic` — kBlobMagic.
     - `uint16_t version` — kBlobVersion.
     - `uint16_t size` — sizeof(PersistentBlob).
-    - `CalibrationData cal` — Calibration.
-    - `Settings settings` — Settings.
+    - `CalibrationData cal` — Calibration (same place in every version).
+    - `uint16_t settingCount` — Entries used in settings[].
+    - `uint16_t reserved` — Zero.
+    - `StoredSetting settings[kMaxStoredSettings]` — Settings by name hash.
     - `uint32_t crc` — CRC-32 of all bytes before this field.
 - `constexpr uint32_t kBlobMagic = 0x3156574Cu` — "LWV1" in little-endian.
-- `constexpr uint16_t kBlobVersion = 4` — Increase when CalibrationData or Settings change layout; old blobs are then ignored.
+- `constexpr uint16_t kBlobVersion = 5` — Increase when the blob layout changes. Older blobs (versions 1-4 stored the settings as a raw struct) still give their calibration; settings then reset.
+- **enum `BlobLoad`** — Result of unpackBlob().
+    - `kBlobInvalid = 0,` — Nothing usable (empty or corrupt storage).
+    - `kBlobOk = 1,` — Calibration and settings loaded.
+    - `kBlobCalibrationOnly = 2,` — Older layout: calibration loaded, settings are defaults.
+- `uint32_t settingNameHash(const char* name)` — 32-bit FNV-1a hash of a setting's console name.
 - `uint32_t crc32(const void* data, size_t len)` — Standard CRC-32 (IEEE, as used by zip).
 - `void packBlob(const CalibrationData& cal, const Settings& s, PersistentBlob& blob)` — Fills `blob` from calibration and settings, including the CRC.
-- `bool unpackBlob(const PersistentBlob& blob, CalibrationData& cal, Settings& s)` — Checks magic, version, size and CRC; on success copies the contents out (settings are clamped to their valid ranges). Returns false if invalid.
+- `BlobLoad unpackBlob(const PersistentBlob& blob, CalibrationData& cal, Settings& s)` — Checks magic, version, size and CRC; on success copies the contents out. Settings not in the blob keep their defaults; all are clamped to their valid ranges. A blob from versions 1-4 gives only its calibration.
 
 #### `voice.h`
 

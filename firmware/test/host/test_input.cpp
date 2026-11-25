@@ -114,14 +114,14 @@ TEST(battery_no_warning_while_the_divider_settles) {
   }
   CHECK(!everLow);
   CHECK_NEAR(good.volts(), 3.9, 0.02);
-  // A really low battery: warned only after 3 s, and right then.
+  // A really low battery: warned only after 1 s, and right then.
   BatteryMonitor weak;
   float firstLow = -1;
   for (float t = 0; t < 6.0f; t += 0.0005f) {
     weak.update(raw(3.1f), 0.0005f, s);
     if (firstLow < 0 && weak.critical()) firstLow = t;
   }
-  CHECK(firstLow >= 2.99f && firstLow < 3.1f);
+  CHECK(firstLow >= 0.99f && firstLow < 1.1f);
 }
 
 TEST(battery_low_and_hysteresis) {

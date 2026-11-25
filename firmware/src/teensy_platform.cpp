@@ -16,7 +16,12 @@ void TeensyPlatform::begin() {
     pinMode(pin, OUTPUT);
     digitalWriteFast(pin, LOW);
   }
+  // Power hold: low until the controller latches the power on (2 s after start).
+  pinMode(lw::kPowerHoldPin, OUTPUT);
+  digitalWriteFast(lw::kPowerHoldPin, LOW);
 }
+
+void TeensyPlatform::setPowerHold(bool on) { digitalWriteFast(lw::kPowerHoldPin, on ? HIGH : LOW); }
 
 uint32_t TeensyPlatform::micros() { return ::micros(); }
 

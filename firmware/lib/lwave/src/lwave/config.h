@@ -40,7 +40,22 @@ constexpr int kMinVoiceCap = 6;
 /// (the divider's filter capacitor is still charging), then smoothed over ~2 s.
 constexpr float kBatteryFastS = 0.5f;
 /// Battery: no low or critical warning for this long after power-up.
-constexpr float kBatteryWarnDelayS = 3.0f;
+constexpr float kBatteryWarnDelayS = 1.0f;
+
+/// Power: the hold output (pin 33) goes high this long after start-up, so the
+/// power stays on once the power button is released.
+constexpr float kPowerLatchS = 2.0f;
+/// Power: holding the power button this long switches off.
+constexpr float kPowerButtonHoldS = 2.0f;
+/// Power: the button must be steady this long to count as pressed or released.
+constexpr float kPowerButtonDebounceS = 0.02f;
+/// Power: the battery must stay critically low this long before switching off.
+constexpr float kPowerBatteryOffS = 5.0f;
+/// Power: after deciding to switch off, the hold output drops this much later
+/// (time for the switch-off sound).
+constexpr float kPowerOffDelayS = 0.6f;
+/// Power: a pot must move this far (fraction of its travel) to count as use.
+constexpr float kActivityPotStep = 0.03f;
 
 /// Number of note keys on the panel.
 constexpr int kNumKeys = 48;

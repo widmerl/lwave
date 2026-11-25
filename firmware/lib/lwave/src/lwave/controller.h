@@ -10,6 +10,7 @@
 #include "lwave/engine.h"
 #include "lwave/input.h"
 #include "lwave/platform.h"
+#include "lwave/power.h"
 #include "lwave/settings.h"
 
 namespace lw {
@@ -59,6 +60,8 @@ class Controller {
   int voiceCap() const { return voiceCap_; }
   /// Audio CPU load in percent (peak of the last 100 ms window), -1 if unknown.
   float cpuPercent() const { return cpu_; }
+  /// Soft-power state (power button, hold output, auto-off).
+  const PowerManager& power() const { return power_; }
 
  private:
   void startCalibration();
@@ -68,6 +71,10 @@ class Controller {
   void publishParams();
   /// Prints calibration phase changes and, every 5 s, what is still missing.
   void reportCalibration(uint32_t t);
+  /// Feeds the power manager (button, use, battery) and drives the hold output.
+  void updatePower(const ScanFrame& f, uint32_t dtUs);
+  /// Notes use of the panel: a pot moved more than kActivityPotStep since the last use.
+  void checkPotUse();
   /// Every 100 ms: reads the audio CPU load and lowers the polyphony cap while
   /// it is above kCpuHighPercent; raises it again while below kCpuLowPercent.
   void updateCpuGuard(uint32_t t);
@@ -117,6 +124,11 @@ class Controller {
   // calibration progress printing
   int calPhaseShown_ = -1;
   uint32_t calPrintT_ = 0;
+  // soft power
+  PowerManager power_;
+  bool used_ = false;                // the player did something this scan
+  float potRef_[kNumPots] = {};      // pot positions at the last use
+  bool powerHold_ = false, powerHoldInit_ = false;
   // CPU guard
   float cpu_ = -1.0f;
   int voiceCap_ = kMaxVoices;

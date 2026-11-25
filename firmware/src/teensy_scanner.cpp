@@ -11,6 +11,9 @@ void TeensyScanner::begin() {
     digitalWriteFast(pin, LOW);
   }
   pinMode(kLineOutDetectPin, INPUT);
+  // Power button: high = pressed. The pull-down keeps it released while the
+  // button is not fitted (first hardware: pin 32 unconnected).
+  pinMode(kPowerButtonPin, INPUT_PULLDOWN);
   for (int m = 0; m < kNumMuxes; ++m)
     for (int ch = 0; ch < 16; ++ch) {
       Route r{None, 0};
@@ -45,5 +48,6 @@ void TeensyScanner::scan(ScanFrame& f) {
     if (kSwitchSources[s].mux == kDirect) f.switches[s] = (uint16_t)analogRead(kSwitchSources[s].channel);
   f.battery = (uint16_t)analogRead(kBatteryPin);
   f.lineOut = digitalReadFast(kLineOutDetectPin) != 0;
+  f.powerButton = digitalReadFast(kPowerButtonPin) != 0;
   f.timeUs = micros();
 }

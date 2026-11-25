@@ -24,6 +24,7 @@ class TeensyPlatform : public lw::Platform {
   float audioCpuPercent() override;
   const char* describe() override;
   lw::TextOut& out() override { return out_; }
+  void setPowerHold(bool on) override;
 
   /// Size of the external PSRAM in MB (0 if none is fitted).
   static uint8_t psramMegabytes();

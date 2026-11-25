@@ -28,6 +28,9 @@ struct FakePlatform : Platform {
   void reboot() override {}
   float cpu = 12.5f;
   float audioCpuPercent() override { return cpu; }
+  int holdChanges = 0;
+  bool hold = false;
+  void setPowerHold(bool on) override { hold = on; ++holdChanges; }
   const char* describe() override { return "test rig"; }
   TextOut& out() override { return o; }
 };
@@ -231,4 +234,22 @@ TEST(controller_calibration_reports_progress) {
   w.run(9000);  // release, rest, then a few seconds of sweep
   CHECK(w.pf.o.text.find("rest stored") != std::string::npos);
   CHECK(w.pf.o.text.find("Missing: keys") != std::string::npos);
+}
+
+TEST(controller_power_hold_and_auto_off) {
+  World w(true);
+  w.ctl.boot(frame(0));
+  w.ctl.onLine("set auto_off_min 0.1");  // 6 s
+  w.run(1000);
+  CHECK(!w.pf.hold);
+  w.run(1500);
+  CHECK(w.pf.hold);  // latched after 2 s
+  CHECK(w.pf.o.text.find("Power: on") != std::string::npos);
+  w.run(7000);       // 6 s unused
+  CHECK(!w.pf.hold);
+  CHECK(w.pf.o.text.find("Power: switching off (not used") != std::string::npos);
+  for (int i = 0; i < 8; ++i) CHECK(!w.pf.leds[i]);
+  w.run(200, keyIndexByName("A1"));  // still running: a key switches it on again and plays
+  CHECK(w.pf.hold);
+  CHECK(w.engine.activeVoices() >= 1);
 }

@@ -1,4 +1,5 @@
 // Tests: knob curves, control mapping, settings, storage format, handoff.
+#include <stddef.h>
 #include <string.h>
 #include "lwave/control_mapper.h"
 #include "lwave/curves.h"
@@ -169,4 +170,54 @@ TEST(default_key_calibration_fits_drv5056) {
   CHECK_NEAR(c.keyTravel(0, 1044), 0.0, 1e-6);  // highest rest reading on the first build
   CHECK(c.keyTravel(0, 1956) > 0.8f);           // lowest fully-down reading
   CHECK(c.keyTravel(0, 2229) > 0.99f);          // highest fully-down reading
+}
+
+TEST(storage_settings_by_name_survive_layout_changes) {
+  CalibrationData cal;
+  cal.setDefaults();
+  cal.potMin[3] = 77;
+  Settings s;
+  s.autoOffMin = 15.0f;
+  s.keyNoteOn = 0.4f;
+  PersistentBlob blob;
+  packBlob(cal, s, blob);
+  // A setting this firmware does not know is ignored; one the blob lacks keeps its default.
+  blob.settings[0].nameHash = settingNameHash("setting_from_the_future");
+  blob.crc = crc32(&blob, offsetof(PersistentBlob, crc));
+  CalibrationData cal2;
+  Settings s2;
+  CHECK(unpackBlob(blob, cal2, s2) == kBlobOk);
+  CHECK(cal2.potMin[3] == 77);
+  CHECK_NEAR(s2.autoOffMin, 15.0, 1e-6);
+  CHECK_NEAR(s2.keyVelStart, Settings().keyVelStart, 1e-6);  // entry 0 was replaced
+  CHECK_NEAR(s2.keyNoteOn, 0.4, 1e-6);
+}
+
+TEST(storage_reads_calibration_from_older_blobs) {
+  // Version 4 layout: header, calibration, the old raw settings, CRC.
+  CalibrationData cal;
+  cal.setDefaults();
+  cal.keyRest[7] = 999;
+  cal.keyValid[7] = 1;
+  PersistentBlob blob;
+  memset(&blob, 0xEE, sizeof(blob));  // whatever followed in the EEPROM
+  uint8_t* raw = reinterpret_cast<uint8_t*>(&blob);
+  const uint16_t oldSize = (uint16_t)(8 + sizeof(CalibrationData) + 37 * 4 + 4);
+  uint32_t magic = kBlobMagic;
+  uint16_t version = 4;
+  memcpy(raw, &magic, 4);
+  memcpy(raw + 4, &version, 2);
+  memcpy(raw + 6, &oldSize, 2);
+  memcpy(raw + 8, &cal, sizeof(cal));
+  uint32_t crc = crc32(raw, oldSize - 4);
+  memcpy(raw + oldSize - 4, &crc, 4);
+  CalibrationData cal2;
+  Settings s2;
+  s2.voices = 3.0f;
+  CHECK(unpackBlob(blob, cal2, s2) == kBlobCalibrationOnly);
+  CHECK(cal2.keyRest[7] == 999 && cal2.keyValid[7] == 1);
+  CHECK_NEAR(s2.voices, Settings().voices, 1e-6);  // settings reset
+  raw[20] ^= 1;  // corrupt: rejected
+  CHECK(unpackBlob(blob, cal2, s2) == kBlobInvalid);
+  CHECK(kNumSettings <= kMaxStoredSettings);
 }

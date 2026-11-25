@@ -16,6 +16,7 @@ struct ScanFrame {
   uint16_t switches[kNumSwitches];  ///< Raw switch readings, indexed by Switch.
   uint16_t battery;                 ///< Raw battery-sense reading.
   bool lineOut;                     ///< Line-out detect pin level.
+  bool powerButton;                 ///< Power button pressed (pin 32 high).
   uint32_t timeUs;                  ///< When the scan finished.
 };
 

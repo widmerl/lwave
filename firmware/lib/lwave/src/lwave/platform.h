@@ -44,6 +44,9 @@ class Platform {
   virtual const char* describe() = 0;
   /// Console output.
   virtual TextOut& out() = 0;
+  /// Drives the power hold output (pin 33): true keeps the power on, false
+  /// switches it off. Does nothing where there is no such output.
+  virtual void setPowerHold(bool on) { (void)on; }
 };
 
 }  // namespace lw

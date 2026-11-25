@@ -25,11 +25,14 @@ void Controller::begin(Platform& platform, Engine& engine) {
   cal_.setDefaults();
   settings_ = Settings();
   PersistentBlob blob;
-  if (pf_->loadBlob(blob) && unpackBlob(blob, cal_, settings_)) {
+  BlobLoad loaded = pf_->loadBlob(blob) ? unpackBlob(blob, cal_, settings_) : kBlobInvalid;
+  if (loaded != kBlobInvalid) {
     int k, p, s;
     cal_.counts(k, p, s);
     pf_->out().printf("L-wave %s: loaded calibration (%d/%d keys, %d/%d pots, %d/%d switches)\r\n", kFirmwareVersion,
                       k, kNumKeys, p, kNumPots, s, kNumSwitches);
+    if (loaded == kBlobCalibrationOnly)
+      pf_->out().print("Stored settings were from an older firmware and are reset to defaults ('save' stores them in the new format).\r\n");
   } else {
     cal_.setDefaults();
     settings_ = Settings();
@@ -64,6 +67,7 @@ void Controller::boot(const ScanFrame& first) {
   // Prime filters and switches with the first frame so nothing jumps.
   processControls(first, 0.001f);
   for (int s = 0; s < kNumSwitches; ++s) lastSwitch_[s] = panel_.sw[s];
+  for (int p = 0; p < kNumPots; ++p) potRef_[p] = panel_.pot[p];
   publishParams();
 }
 
@@ -94,13 +98,57 @@ void Controller::onFrame(const ScanFrame& f) {
   } else {
     processKeys(f);
     processControls(f, dtS);
+    checkPotUse();
     publishParams();
   }
 
+  updatePower(f, dtUs);
   updateCpuGuard(f.timeUs);
   runCues(f.timeUs);
   updateLeds(f.timeUs);
   if (stream_) printDebug(f);
+}
+
+void Controller::checkPotUse() {
+  bool moved = false;
+  for (int p = 0; p < kNumPots && !moved; ++p) moved = fabsf(panel_.pot[p] - potRef_[p]) > kActivityPotStep;
+  if (!moved) return;
+  used_ = true;
+  for (int p = 0; p < kNumPots; ++p) potRef_[p] = panel_.pot[p];
+}
+
+void Controller::updatePower(const ScanFrame& f, uint32_t dtUs) {
+  const bool used = used_ || mode_ == Mode::Calibration;  // no auto-off during calibration
+  used_ = false;
+  switch (power_.update(dtUs, f.powerButton, used, battery_.critical(), settings_.autoOffMin)) {
+    case PowerManager::Event::Latched:
+      pf_->out().print("Power: on (hold output, pin 33, high).\r\n");
+      break;
+    case PowerManager::Event::SwitchedOff: {
+      NoteEvent off;
+      off.type = NoteEvent::Type::AllOff;
+      engine_->post(off);
+      scheduleCue(783.99f, 0.12f, 0.0f);  // falling three notes: switching off
+      scheduleCue(523.25f, 0.12f, 0.15f);
+      scheduleCue(392.0f, 0.25f, 0.3f);
+      if (power_.offReason() == PowerOffReason::Battery)
+        pf_->out().printf("Power: switching off (battery critically low, %.2f V).\r\n", battery_.volts());
+      else
+        pf_->out().printf("Power: switching off (%s).\r\n", powerOffReasonText(power_.offReason()));
+      break;
+    }
+    case PowerManager::Event::Woke:
+      pf_->out().print("Power: still running after switching off (USB power, or no power circuit), so on again.\r\n");
+      break;
+    default:
+      break;
+  }
+  const bool hold = power_.holdPower();
+  if (hold != powerHold_ || !powerHoldInit_) {
+    powerHold_ = hold;
+    powerHoldInit_ = true;
+    pf_->setPowerHold(hold);
+  }
 }
 
 void Controller::updateCpuGuard(uint32_t t) {
@@ -136,6 +184,7 @@ void Controller::processKeys(const ScanFrame& f) {
     if (ev.on) {
       // The octave is captured at note-on, so held notes keep their pitch.
       keyNote_[k] = (float)kKeys[k].note + (float)octave;
+      used_ = true;
       ne.type = NoteEvent::Type::On;
       ne.note = keyNote_[k];
       ne.velocity = ev.velocity;
@@ -155,6 +204,7 @@ void Controller::processControls(const ScanFrame& f, float dtS) {
     panel_.sw[s] = switches_[s].update(s, f.switches[s], f.timeUs, cal_, settings_);
     if (panel_.sw[s] != lastSwitch_[s]) {
       if (eventLog_) pf_->out().printf("EV switch %s %d\r\n", kSwitchNames[s], panel_.sw[s] + 1);
+      used_ = true;
       lastSwitch_[s] = panel_.sw[s];
     }
   }
@@ -235,6 +285,7 @@ void Controller::finishCalibration() {
   for (SwitchDecoder& sd : switches_) sd = SwitchDecoder();
   mode_ = Mode::Normal;
   processControls(last_, 0.001f);
+  for (int p = 0; p < kNumPots; ++p) potRef_[p] = panel_.pot[p];
   publishParams();
 }
 
@@ -272,6 +323,8 @@ void Controller::updateLeds(uint32_t t) {
     if ((uint32_t)(t - ledTestT_) > 300000u) { ++ledTest_; ledTestT_ = t; }
     if (ledTest_ >= kNumLeds) ledTest_ = -1;
     else want[ledTest_] = true;
+  } else if (power_.state() == PowerManager::State::Off) {
+    // switched off: all LEDs dark (the power is going, or the synth waits on USB power)
   } else if (mode_ == Mode::Calibration) {
     int lit = (int)(calibrator_.progress() * 8.0f + 0.5f);  // progress bar
     for (int i = 0; i < 8; ++i) want[i] = i < lit;
@@ -280,7 +333,7 @@ void Controller::updateLeds(uint32_t t) {
     for (int i = 0; i < 7; ++i) want[i] = db >= settings_.meterFloorDb + settings_.meterStepDb * (float)i;
     want[7] = db >= -1.0f || engine_->limiterReductionDb() > 0.5f;
   }
-  if (ledTest_ < 0) {
+  if (ledTest_ < 0 && power_.state() != PowerManager::State::Off) {
     if (battery_.critical()) want[8] = ((t / 250000u) & 1u) != 0;  // blink at 2 Hz
     else want[8] = battery_.low();
   }
@@ -363,10 +416,11 @@ void Controller::printDebug(const ScanFrame& f) {
       }
       break;
     case DebugView::Stats:
-      o.printf("STATS mode=%s scan=%.0fHz cpu=%.1f%% voices=%d cap=%d level=%.1fdB limit=%.1fdB batt=%.2fV%s%s line_out=%d\r\n",
+      o.printf("STATS mode=%s scan=%.0fHz cpu=%.1f%% voices=%d cap=%d level=%.1fdB limit=%.1fdB batt=%.2fV%s%s line_out=%d"
+               " pwr_btn=%d idle=%.1fmin\r\n",
                modeName(mode_), scanRate_, cpu_, engine_->activeVoices(), voiceCap_, engine_->outputLevelDb(),
                engine_->limiterReductionDb(), battery_.volts(), battery_.low() ? " LOW" : "",
-               battery_.critical() ? " CRIT" : "", f.lineOut ? 1 : 0);
+               battery_.critical() ? " CRIT" : "", f.lineOut ? 1 : 0, f.powerButton ? 1 : 0, power_.idleSeconds() / 60.0f);
       break;
     case DebugView::Monitor:
       printMonitor(f);
@@ -442,6 +496,12 @@ void Controller::printInfo() {
       "calibration: %d/%d keys, %d/%d pots, %d/%d switches\r\n",
       kFirmwareVersion, pf_->describe(), modeName(mode_), engine_->sampleRate(), engine_->maxDelaySeconds(),
       (int)settings_.voices, kMaxVoices, scanRate_, k, kNumKeys, p, kNumPots, s, kNumSwitches);
+  const char* st = power_.state() == PowerManager::State::On ? "on" : (power_.state() == PowerManager::State::Off ? "off" : "starting");
+  if (settings_.autoOffMin > 0.0f)
+    pf_->out().printf("power: %s, unused for %.1f min, switches off after %.0f min unused\r\n", st,
+                      power_.idleSeconds() / 60.0f, settings_.autoOffMin);
+  else
+    pf_->out().printf("power: %s, unused for %.1f min, auto-off disabled\r\n", st, power_.idleSeconds() / 60.0f);
 }
 
 void Controller::printSettings() {
@@ -458,6 +518,7 @@ void Controller::onLine(const char* line) {
   int argc = 0;
   for (char* tok = strtok(buf, " \t\r\n"); tok && argc < 4; tok = strtok(nullptr, " \t\r\n")) argv[argc++] = tok;
   if (argc == 0) return;
+  used_ = true;  // typing in the console counts as use (no auto-off while debugging)
   const char* cmd = argv[0];
   TextOut& o = pf_->out();
 

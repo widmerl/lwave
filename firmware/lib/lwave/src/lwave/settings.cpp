@@ -33,6 +33,7 @@ const SettingInfo kSettingInfos[] = {
     {"detune_upper_c", &Settings::detuneUpperC, 0.0f, 300.0f, "2 copies: upper copy at full knob (cents above)"},
     {"osc_random_phase", &Settings::oscRandomPhase, 0.0f, 1.0f, "1 = random oscillator start phase per note"},
     {"hp_volume", &Settings::hpVolume, 0.0f, 1.0f, "codec headphone volume (0-1)"},
+    {"auto_off_min", &Settings::autoOffMin, 0.0f, 1440.0f, "switch off after this many minutes unused (0 = never)"},
     {"debug_rate_hz", &Settings::debugRateHz, 1.0f, 200.0f, "debug stream rate (Hz)"},
 };
 const int kNumSettings = sizeof(kSettingInfos) / sizeof(kSettingInfos[0]);

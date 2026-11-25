@@ -53,6 +53,10 @@ constexpr uint8_t kBatteryPin = 15;
 constexpr uint8_t kLineOutDetectPin = 9;
 /// Teensy on-board LED (not wired on the panel, used for the alive blink).
 constexpr uint8_t kOnboardLedPin = 13;
+/// Power button (digital input, high = pressed; internal pull-down). Next hardware revision.
+constexpr uint8_t kPowerButtonPin = 32;
+/// Power hold output: high keeps the power on, low switches off. Next hardware revision.
+constexpr uint8_t kPowerHoldPin = 33;
 
 // ---- Tables (defined in hw_map.cpp) ----------------------------------------
 /// Source of each pot, indexed by Pot.

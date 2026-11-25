@@ -7,7 +7,8 @@
 
 namespace lw {
 
-/// Every tunable value. Plain data: it is copied byte-for-byte into storage.
+/// Every tunable value. Stored by console name (see storage_format.h), so adding
+/// a setting keeps the others and the calibration.
 struct Settings {
   // Keys (fractions of full key travel, 0 = rest, 1 = bottomed out)
   float keyVelStart = 0.10f;   ///< Travel where velocity timing starts.
@@ -43,6 +44,8 @@ struct Settings {
   float detuneUpperDb = -6.0f; ///< With 2 copies: level of the upper copy relative to the main one.
   float oscRandomPhase = 0.0f; ///< 1 = oscillators start at random phases on every note (like free-running analog); 0 = all start together.
   float hpVolume = 0.6f;       ///< SGTL5000 headphone volume (0..1), fixed; the master slider works digitally.
+  // Power
+  float autoOffMin = 60.0f;    ///< Switch off after this many minutes without use (keys, pots, switches, console); 0 = never.
   // Debug
   float debugRateHz = 50.0f;   ///< Debug stream update rate.
 };
