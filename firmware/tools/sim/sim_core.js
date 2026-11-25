@@ -61,7 +61,7 @@ function simCoreFactory() {
       switch (m.t) {
         case 'pot': this.x.sim_set_pot(m.i, m.v); break;
         case 'sw': this.x.sim_set_switch(m.i, m.p); break;
-        case 'key': this.x.sim_key(m.k, m.down ? 1 : 0, m.down ? this.x.sim_press_ms(m.v) : 0); break;
+        case 'key': this.x.sim_key(m.k, m.down ? 1 : 0, m.ms > 0 ? m.ms : (m.down ? this.x.sim_press_ms(m.v) : 0)); break;
         case 'line': this.line(m.s); break;
         case 'bat': this.x.sim_set_battery(m.v); break;
         case 'lo': this.x.sim_set_lineout(m.on ? 1 : 0); break;

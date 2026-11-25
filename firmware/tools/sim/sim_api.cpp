@@ -151,12 +151,13 @@ SIM_EXPORT(sim_set_switch) void sim_set_switch(int i, int pos) {
   if (i >= 0 && i < kNumSwitches) gSwitch[i] = pos & 7;
 }
 
-/// Presses (down = 1) or releases key k. A press reaches the bottom in fullMs.
+/// Presses (down = 1) or releases key k. A press reaches the bottom in fullMs;
+/// a release takes fullMs if it is given (> 0), otherwise 15 ms.
 SIM_EXPORT(sim_key) void sim_key(int k, int down, float fullMs) {
   if (k < 0 || k >= kNumKeys) return;
   KeyAnim& a = gKeys[k];
   a.target = down ? 1.0f : 0.0f;
-  float ms = down ? (fullMs < 0.2f ? 0.2f : fullMs) : 15.0f;
+  float ms = down ? (fullMs < 0.2f ? 0.2f : fullMs) : (fullMs > 0.0f ? fullMs : 15.0f);
   a.ratePerUs = 1.0f / (ms * 1000.0f);
 }
 

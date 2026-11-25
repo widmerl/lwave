@@ -8,6 +8,20 @@
 
 namespace lw {
 
+/// What the Velocity knob (0..1) gives strike speed and key depth, blended
+/// smoothly between four points: 0 % speed sets the volume, the Attack knob the
+/// attack; 33 % speed also scales the attack time; 66 % speed only scales the
+/// attack time; 100 % key depth is the volume, rising no faster than 0 to full
+/// in the Attack knob's time.
+struct VelocityKnobWeights {
+  float speedToLevel;   ///< 1 = strike speed sets the volume (vel_range_db), 0 = no effect.
+  float speedToAttack;  ///< 1 = strike speed scales the attack time by vel_attack_span^±1.
+  float depthIsLevel;   ///< 1 = key depth is the volume from the note-on point; the Attack knob only limits how fast it rises.
+};
+
+/// Weights for a Velocity knob position 0..1.
+VelocityKnobWeights velocityKnobWeights(float knob);
+
 /// One voice. Plays one key at a time; the engine assigns keys to voices.
 /// The rotary-switch settings (filter type, LFO waveform, LFO destination) are
 /// captured when the note starts, like the octave, so turning a switch only
@@ -61,10 +75,19 @@ class Voice {
   struct Switches { FilterType filter; LfoWave wave; LfoDest dest; bool randomPhase; };
   struct Pending { uint8_t key; float note, velocity, depth; uint32_t age; bool released; float frozen; Switches sw; };
   void begin(uint8_t key, float note, float velocity, float depth, uint32_t age, const Switches& sw);
+  /// Level factor from key depth for the current knob and settings (before smoothing).
+  float depthLevel(const EngineParams& p) const;
+  /// Depth-driven level 0..1 the key asks for (Velocity knob 100 %), before the Attack limit.
+  float swellTarget(const EngineParams& p) const;
 
   bool active_ = false, released_ = false, fading_ = false, hasPending_ = false;
   uint8_t key_ = 0;
   float note_ = 60.0f, velocity_ = 1.0f, depth_ = 1.0f, depthGain_ = 1.0f;
+  // Key still travelling down (depth-driven mode holds the envelope peak until it arrives).
+  bool arrived_ = false;
+  float maxDepth_ = 0.0f, sinceRise_ = 0.0f;
+  // Depth-driven level after the Attack knob's rise limit (0 to 1 in no less than the attack time).
+  float swellNow_ = 0.0f;
   uint32_t age_ = 0;
   float fadeGain_ = 1.0f, fadeStep_ = 0.0f;
   Pending pending_{};

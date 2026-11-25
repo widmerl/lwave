@@ -163,9 +163,10 @@ kbd { font: 11px var(--font-mono); border: 1px solid var(--line); border-bottom-
       <section class="card" id="simbox" aria-labelledby="h-sim">
         <h2 id="h-sim">Playing</h2>
         <div class="field"><label for="strike">Strike</label><input type="range" id="strike" min="0" max="1" step="0.01" value="0.75"><output id="strike-out"></output></div>
+        <div class="field"><label for="slow">Slow press</label><input type="range" id="slow" min="0" max="3" step="0.05" value="0"><output id="slow-out"></output></div>
         <div class="field"><label for="battery">Battery</label><input type="range" id="battery" min="3.0" max="4.2" step="0.01" value="3.9"><output id="battery-out"></output></div>
         <label class="check"><input type="checkbox" id="lineout"> Line-out cable plugged in</label>
-        <p class="hint" style="margin-top:10px">Computer keys play rows B–E: <kbd>2</kbd>–<kbd>9</kbd>, <kbd>Q</kbd>–<kbd>O</kbd>, <kbd>A</kbd>–<kbd>K</kbd>, <kbd>Z</kbd>–<kbd>M</kbd>. Hold <kbd>Shift</kbd> to strike softly. Drag dials and sliders up or down (with <kbd>Shift</kbd> for fine steps); double-click resets. Click a switch to step it.</p>
+        <p class="hint" style="margin-top:10px">Computer keys play rows B–E: <kbd>2</kbd>–<kbd>9</kbd>, <kbd>Q</kbd>–<kbd>O</kbd>, <kbd>A</kbd>–<kbd>K</kbd>, <kbd>Z</kbd>–<kbd>M</kbd>. Hold <kbd>Shift</kbd> to strike softly. <b>Slow press</b> makes keys travel down and back up over that time, to try the Velocity knob above 66 %. Drag dials and sliders up or down (with <kbd>Shift</kbd> for fine steps); double-click resets. Click a switch to step it.</p>
         <div class="cmdrow"><button class="btn" id="midi" type="button">Use MIDI keyboard</button><button class="btn" id="reset" type="button">Reset panel</button></div>
       </section>
       <section class="card" id="monbox" hidden aria-labelledby="h-mon">
@@ -598,9 +599,11 @@ function pressKey(i, soft) {
   if (readOnly()) return;
   if (!audio) startAudio();
   const v = soft ? 0.25 : Number($('strike').value);
-  send({ t: 'key', k: i, down: true, v });
+  send({ t: 'key', k: i, down: true, v, ms: slowMs() });
 }
-function releaseKey(i) { if (!readOnly()) send({ t: 'key', k: i, down: false }); }
+// Slow press: when set, keys go down and come back up over this time (for the Velocity knob's depth mode).
+function slowMs() { return Number($('slow').value) * 1000; }
+function releaseKey(i) { if (!readOnly()) send({ t: 'key', k: i, down: false, ms: slowMs() }); }
 function bindKey(g, i) {
   g.addEventListener('pointerdown', (e) => {
     selected = { kind: 'key', i }; requestRender();
@@ -952,9 +955,12 @@ $('reset').addEventListener('click', () => {
 });
 function syncOutputs() {
   $('strike-out').textContent = Math.round(Number($('strike').value) * 100) + ' %';
+  const slow = Number($('slow').value);
+  $('slow-out').textContent = slow > 0 ? slow.toFixed(2) + ' s' : 'off';
   $('battery-out').textContent = Number($('battery').value).toFixed(2) + ' V';
 }
 $('strike').addEventListener('input', syncOutputs);
+$('slow').addEventListener('input', syncOutputs);
 $('battery').addEventListener('input', () => { syncOutputs(); send({ t: 'bat', v: Number($('battery').value) }); });
 $('lineout').addEventListener('change', () => send({ t: 'lo', on: $('lineout').checked }));
 

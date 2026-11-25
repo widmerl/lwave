@@ -109,11 +109,20 @@ One pass of `loop()`:
 
 Every 16 samples (control rate) the voice updates its LFO, pitch, pulse width, detune, the depth ramp and the filter coefficients. Cutoff = knob × 2^(tracking × (note − 60)/12 + filter_env_oct × envelope knob × ADSR + LFO octaves).
 
-**Envelope** (`Adsr`): the attack is an RC curve aimed at 1.3 and reaches 1 in the attack time. Decay and release are exponential and fall to −60 dB in their time. Releasing during the attack decays from the current level.
+**Envelope** (`Adsr`): the attack is an RC curve aimed at 1.3 and reaches 1 in the attack time. Decay and release are exponential and fall to −60 dB in their time. Releasing during the attack decays from the current level. With the Velocity knob above 66 % the decay waits at the peak until the key has arrived (it is 95 % down, or has not gone 2 % deeper for 50 ms) and the depth-driven level has caught up with the key.
 
-**Velocity**: loudness always follows velocity: the softest strike is `vel_range_db` (24 dB) quieter. The Velocity knob sets how much velocity also changes attack time: at 100 % the softest strike gets `vel_attack_span` (4) × the attack, the hardest ¼.
+**Velocity knob** (`velocityKnobWeights()`): it blends smoothly between four points. "Speed" is the strike speed (velocity, from the time between `key_vel_start` and `key_note_on`).
 
-**Key depth** (`depth_mode`): 1 (default) multiplies the note level by the key's depth. 2 scales only the sustain level. 0 ignores depth. A key's depth is the highest travel within the last `depth_freeze_ms` (20 ms). A key on its way up therefore doesn't dip the level before the note ends, and the value frozen at release matches the level just before it. The voice glides to depth changes over about 4 ms.
+| Knob | Volume | Attack time |
+| --- | --- | --- |
+| 0 % | speed: the softest strike is `vel_range_db` (24 dB) quieter | the Attack knob |
+| 33 % | speed, as at 0 % | Attack knob × `vel_attack_span`^±1: the softest strike 4 × longer, the hardest ¼ |
+| 66 % | not affected by speed | as at 33 % |
+| 100 % | key depth: silent at the note-on point (`key_note_on`, 30 %), full at the bottom, as (travel past that point)^`swell_curve` (2) | the note rises with the key, but no faster than 0 to full in the Attack knob's time (Attack 1 s: a hard strike takes 1 s, a 2 s press follows the key); the decay starts once the key has arrived and the level has caught up |
+
+Between the points the weights move in straight lines: speed's say over the volume fades out from 33 to 66 %; from 66 to 100 % the envelope attack fades out and key depth takes over, its rise limited by the Attack knob. At 100 % a slow press is a crescendo, a quick strike an attack as fast as the Attack knob allows; the level falls with the key at once (no limit), so lifting the key slowly fades the note out before it ends, and a quick lift leaves the normal release. After release the level no longer rises. The serial `p` view names the nearest point, e.g. `66 % (speed->attack)`. In the simulator, the Slow press slider makes keys go down and back up over a set time to try this.
+
+**Key depth** (`depth_mode`): 1 (default) multiplies the note level by the key's depth (from 66 % on the Velocity knob this blends into the depth mapping above). 2 scales only the sustain level. 0 ignores depth. A key's depth is the highest travel within the last `depth_freeze_ms` (20 ms). A key on its way up therefore doesn't dip the level before the note ends, and the value frozen at release matches the level just before it. The voice glides to depth changes over about 4 ms.
 
 **LFO** (`Lfo`), shape from the waveform switch:
 
@@ -362,7 +371,8 @@ Generated from the `///` comments in the headers. Every class, function and fiel
 | `vel_fast_ms` | 1.0 | 0.1 … 50.0 | travel time of the hardest strike (ms) |
 | `vel_slow_ms` | 40.0 | 1.0 … 500.0 | travel time of the softest strike (ms) |
 | `vel_range_db` | 24.0 | 0.0 … 60.0 | softest strike is this much quieter (dB) |
-| `vel_attack_span` | 4.0 | 1.0 … 16.0 | attack factor at Velocity knob 100 % |
+| `vel_attack_span` | 4.0 | 1.0 … 16.0 | attack factor from strike speed (Velocity knob 33-66 %) |
+| `swell_curve` | 2.0 | 0.25 … 4.0 | Velocity knob 100 %: level = key travel ^ this |
 | `depth_mode` | 1.0 | 0.0 … 2.0 | key depth: 0 off, 1 level, 2 sustain only |
 | `depth_freeze_ms` | 20.0 | 0.0 … 60.0 | key depth = highest travel in this window (ms) |
 | `voices` | 20.0 | 1.0 … kMaxVoices | polyphony in use |
@@ -562,7 +572,7 @@ What the control side sends to the sound engine: a parameter snapshot (engine un
     - `float lfoPeriod = 1.0f` — Seconds per cycle (or ramp time for one-shots).
     - `float lfoDelay = 0.05f` — Seconds: fade-in time (repeating) or start delay (one-shot).
     - `float lfoStrength = 0.0f` — 0..1.
-    - `float velocityKnob = 0.0f` — 0..1: how much velocity also scales attack time.
+    - `float velocityKnob = 0.0f` — 0..1: what strike speed and key depth control (see velocityKnobWeights()).
     - `float attack = 0.005f` — Seconds.
     - `float decay = 0.3f` — Seconds.
     - `float sustain = 0.8f` — 0..1.
@@ -589,6 +599,8 @@ What the control side sends to the sound engine: a parameter snapshot (engine un
     - `float velRangeDb = 24.0f` — See Settings::velRangeDb.
     - `float velAttackSpan = 4.0f` — See Settings::velAttackSpan.
     - `int depthMode = 1` — See Settings::depthMode.
+    - `float swellCurve = 2.0f` — See Settings::swellCurve.
+    - `float swellStart = 0.3f` — Key travel where depth-driven level starts (Settings::keyNoteOn).
     - `float filterEnvOct = 6.0f` — See Settings::filterEnvOct.
     - `float meterFallDbS = 40.0f` — See Settings::meterFallDbS.
     - `int detuneCopies = 2` — See Settings::detuneCopies (1..3).
@@ -751,7 +763,8 @@ Tunable settings. These are the values you are expected to experiment with on th
     - `float velFastMs = 1.0f` — Travel time (start → note-on) that counts as the hardest strike.
     - `float velSlowMs = 40.0f` — Travel time that counts as the softest strike.
     - `float velRangeDb = 24.0f` — How much quieter the softest strike is than the hardest.
-    - `float velAttackSpan = 4.0f` — Attack-time factor at Velocity knob 100 %: softest ×span, hardest ÷span.
+    - `float velAttackSpan = 4.0f` — Attack-time factor where the Velocity knob gives speed full say over the attack (33-66 %): softest ×span, hardest ÷span.
+    - `float swellCurve = 2.0f` — Velocity knob 100 %: level = (travel past the note-on point)^curve. 1 = linear, 2 = more even in loudness.
     - `float depthMode = 1.0f` — Key depth: 0 = ignored, 1 = scales the note level, 2 = scales sustain only.
     - `float depthFreezeMs = 20.0f` — Key depth = highest travel within this window, so lifting a key does not dip the level; frozen at release.
     - `float voices = 20.0f` — Polyphony in use (1 .. kMaxVoices). Lower it if the cpu figure in the stats view gets high.
@@ -819,6 +832,11 @@ The byte layout saved in EEPROM: calibration + settings, with a magic number, ve
 
 One synth voice: oscillators, mix, filter, envelope, LFO.
 
+- **struct `VelocityKnobWeights`** — What the Velocity knob (0..1) gives strike speed and key depth, blended smoothly between four points: 0 % speed sets the volume, the Attack knob the attack; 33 % speed also scales the attack time; 66 % speed only scales the attack time; 100 % key depth is the volume, rising no faster than 0 to full in the Attack knob's time.
+    - `float speedToLevel` — 1 = strike speed sets the volume (vel_range_db), 0 = no effect.
+    - `float speedToAttack` — 1 = strike speed scales the attack time by vel_attack_span^±1.
+    - `float depthIsLevel` — 1 = key depth is the volume from the note-on point; the Attack knob only limits how fast it rises.
+- `VelocityKnobWeights velocityKnobWeights(float knob)` — Weights for a Velocity knob position 0..1.
 - **class `Voice`** — One voice. Plays one key at a time; the engine assigns keys to voices. The rotary-switch settings (filter type, LFO waveform, LFO destination) are captured when the note starts, like the octave, so turning a switch only affects new notes.
     - `static constexpr int kNumOsc = 5` — Number of oscillator phases: the centre (main) copy, the low and the high detuned copies (each shared by saw, square, triangle and sine, which run at the same pitch), sub 1, sub 2.
     - `void start(uint8_t key, float note, float velocity, float depth, uint32_t age, const EngineParams& p)` — Starts a note now (the voice must be idle or its fade-out finished). Switch settings come from p.
@@ -841,6 +859,8 @@ One synth voice: oscillators, mix, filter, envelope, LFO.
     - `static constexpr float kMaxLfoSemitones = 48.0f` — Largest pitch offset any LFO destination can apply, in semitones.
     - `static constexpr float kMaxLfoGain = 4.0f` — Largest volume gain the LFO can apply (+12 dB).
     - `static constexpr float kMaxLfoDetune = 4.0f` — Largest detune the LFO can reach, as a multiple of the full-knob spread.
+    - `float depthLevel(const EngineParams& p) const` — Level factor from key depth for the current knob and settings (before smoothing).
+    - `float swellTarget(const EngineParams& p) const` — Depth-driven level 0..1 the key asks for (Velocity knob 100 %), before the Attack limit.
 
 ### DSP building blocks (lib/lwave/src/lwave/dsp)
 
@@ -912,10 +932,11 @@ The shared effects chain: overdrive, bitcrusher, delay, reverb, output limiter, 
 
 ADSR envelope with analog-style exponential curves.
 
-- **class `Adsr`** — ADSR envelope, 0..1. Attack is an RC curve aimed past 1 (like an analog envelope) so it reaches 1 in the attack time. Decay and release fall exponentially and reach -60 dB of the distance in their time. Releasing during the attack decays from the current level.
+- **class `Adsr`** — ADSR envelope, 0..1. Attack is an RC curve aimed past 1 (like an analog envelope) so it reaches 1 in the attack time. Decay and release fall exponentially and reach -60 dB of the distance in their time. Releasing during the attack decays from the current level. While "hold" is set the decay waits at the peak (used while a key is still travelling down).
 - **enum class `Stage`** — Envelope stage.
     - `void setTimes(float attackS, float decayS, float releaseS, float sampleRate)` — Sets the stage times in seconds. Cheap enough to call once per audio block.
     - `void setSustain(float level)` — Sets the sustain level 0..1. Takes effect smoothly.
+    - `void setHold(bool hold)` — While true, the envelope stays at its peak instead of starting the decay.
     - `void noteOn()` — Starts the attack from the current level.
     - `void noteOff()` — Starts the release from the current level.
     - `void reset()` — Jumps to silence.

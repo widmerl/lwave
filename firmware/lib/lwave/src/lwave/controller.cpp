@@ -405,7 +405,7 @@ void Controller::printDebug(const ScanFrame& f) {
         int shown = (int)(200.0f * panel_.pot[p] + 0.5f);
         if (shown == potShown_[p]) continue;
         potShown_[p] = shown;
-        char val[24];
+        char val[40];
         formatPotValue(lastParams_, static_cast<Pot>(p), val, sizeof(val));
         o.printf("POT %-12s %5.1f %%  %s\r\n", kPotNames[p], shown * 0.5f, val);
       }

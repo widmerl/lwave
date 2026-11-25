@@ -458,3 +458,146 @@ TEST(delay_and_reverb_full_mix_is_equal_level) {
   r.set(1.0f, 1.0f);
   CHECK_NEAR(r.process(1.0f), 0.7071, 2e-3);  // dry part of the first sample
 }
+
+TEST(velocity_knob_weights_at_the_four_points) {
+  VelocityKnobWeights w = velocityKnobWeights(0.0f);
+  CHECK(w.speedToLevel == 1.0f && w.speedToAttack == 0.0f && w.depthIsLevel == 0.0f);
+  w = velocityKnobWeights(1.0f / 3.0f);
+  CHECK_NEAR(w.speedToLevel, 1.0, 1e-5);
+  CHECK_NEAR(w.speedToAttack, 1.0, 1e-5);
+  CHECK_NEAR(w.depthIsLevel, 0.0, 1e-5);
+  w = velocityKnobWeights(2.0f / 3.0f);
+  CHECK_NEAR(w.speedToLevel, 0.0, 1e-5);
+  CHECK_NEAR(w.speedToAttack, 1.0, 1e-5);
+  CHECK_NEAR(w.depthIsLevel, 0.0, 1e-5);
+  w = velocityKnobWeights(1.0f);
+  CHECK(w.speedToLevel == 0.0f && w.depthIsLevel == 1.0f);
+  w = velocityKnobWeights(0.5f);  // between: halfway
+  CHECK_NEAR(w.speedToLevel, 0.5, 1e-5);
+}
+
+namespace {
+// Peak of a sine note in the second half of `seconds`, at Velocity knob `knob`.
+float knobPeak(float knob, float vel, float attack = 0.0f) {
+  Rig r;
+  basePatch(r.p());
+  r.p().levelSine = 1.0f;
+  r.p().velocityKnob = knob;
+  r.p().attack = attack;
+  r.p().depthMode = 1;
+  r.publish();
+  r.on(0, 69.0f, vel);
+  std::vector<float> x;
+  r.run(0.4f, nullptr, &x);
+  float pk = 0;
+  for (size_t i = x.size() / 2; i < x.size(); ++i) pk = fmaxf(pk, fabsf(x[i]));
+  return pk;
+}
+}  // namespace
+
+TEST(velocity_knob_speed_sets_volume_below_66_percent_only) {
+  CHECK_NEAR(gainToDb(knobPeak(0.0f, 0.0f) / knobPeak(0.0f, 1.0f)), -24.0, 0.5);
+  CHECK_NEAR(gainToDb(knobPeak(0.5f, 0.0f) / knobPeak(0.5f, 1.0f)), -12.0, 0.5);  // halfway
+  CHECK_NEAR(gainToDb(knobPeak(0.667f, 0.0f) / knobPeak(0.667f, 1.0f)), 0.0, 0.3);
+}
+
+TEST(velocity_knob_speed_scales_attack_from_33_percent) {
+  // Attack knob 0.1 s; at 33 % the softest strike gets x4 (0.4 s), the hardest /4 (25 ms).
+  for (int pass = 0; pass < 2; ++pass) {
+    Rig r;
+    basePatch(r.p());
+    r.p().levelSine = 1.0f;
+    r.p().attack = 0.1f;
+    r.p().velocityKnob = 1.0f / 3.0f;
+    r.publish();
+    r.on(0, 69.0f, pass ? 1.0f : 0.0f);
+    r.run(0.05f);
+    float env = r.e.voice(0).envLevel();
+    if (pass) CHECK(env > 0.99f);       // hard: done after 25 ms
+    else CHECK(env < 0.35f);            // soft: 50 ms into a 0.4 s attack
+  }
+}
+
+TEST(velocity_knob_100_percent_key_depth_is_the_volume) {
+  Rig r;
+  EngineParams base;
+  basePatch(base);
+  base.levelSine = 1.0f;
+  base.velocityKnob = 1.0f;
+  base.attack = 0.01f;  // fastest: the Attack knob's rise limit never holds the swell back here
+  base.sustain = 0.5f;
+  base.decay = 0.1f;
+  base.swellStart = 0.3f;
+  base.swellCurve = 2.0f;
+  // The parameter buffers rotate, so every update writes the whole snapshot.
+  auto setDepth = [&](float d) {
+    r.p() = base;
+    for (float& k : r.p().keyDepth) k = d;
+    r.publish();
+  };
+  auto peakFor = [&](float s) {
+    std::vector<float> x;
+    r.run(s, nullptr, &x);
+    float pk = 0;
+    for (size_t i = x.size() / 2; i < x.size(); ++i) pk = fmaxf(pk, fabsf(x[i]));
+    return pk;
+  };
+  setDepth(0.3f);
+  r.on(0, 69.0f, 0.0f, 0.3f);  // slowest strike, note starts at 30 % travel
+  CHECK(peakFor(0.02f) < 1e-3f);  // silent at the note-on point
+  // Push slowly towards the bottom over 0.55 s: the level rises with the key and
+  // the decay waits while the key is still moving.
+  float lastPk = 0.0f;
+  bool rising = true;
+  for (int i = 1; i <= 18; ++i) {  // up to 93 % travel
+    setDepth(0.3f + 0.7f * i / 20.0f);
+    float pk = peakFor(0.03f);
+    if (pk + 1e-4f < lastPk) rising = false;
+    lastPk = pk;
+  }
+  CHECK(rising);
+  CHECK(r.e.voice(0).envLevel() > 0.99f);  // still at the peak: decay held while the key moved
+  setDepth(1.0f);
+  r.run(0.5f);  // key resting at the bottom: decays to sustain
+  CHECK_NEAR(r.e.voice(0).envLevel(), 0.5, 0.02);
+  const float full = peakFor(0.1f);
+  // Halfway between the note-on point and the bottom: (0.5)^2 of the level.
+  setDepth(0.65f);
+  r.run(0.1f);
+  float half = peakFor(0.1f);
+  CHECK_NEAR(gainToDb(half / full), gainToDb(0.25f), 0.5);
+}
+
+TEST(velocity_knob_100_percent_attack_limits_the_swell) {
+  Rig r;
+  EngineParams base;
+  basePatch(base);
+  base.levelSine = 1.0f;
+  base.velocityKnob = 1.0f;
+  base.attack = 1.0f;  // 0 to full in no less than 1 s
+  base.sustain = 0.5f;
+  base.decay = 0.1f;
+  base.swellStart = 0.3f;
+  base.swellCurve = 2.0f;
+  r.p() = base;
+  for (float& k : r.p().keyDepth) k = 1.0f;
+  r.publish();
+  auto peakFor = [&](float s) {
+    std::vector<float> x;
+    r.run(s, nullptr, &x);
+    float pk = 0;
+    for (size_t i = x.size() / 2; i < x.size(); ++i) pk = fmaxf(pk, fabsf(x[i]));
+    return pk;
+  };
+  r.on(0, 69.0f, 1.0f, 1.0f);  // hardest strike, key straight to the bottom
+  const float p25 = peakFor(0.25f);
+  const float p50 = peakFor(0.25f);
+  CHECK(r.e.voice(0).envLevel() > 0.99f);
+  r.run(0.42f);                              // 0.92 s: still rising, decay still waiting
+  CHECK(r.e.voice(0).envLevel() > 0.99f);
+  r.run(0.6f);                               // level caught up at 1 s, then decays to sustain
+  CHECK_NEAR(r.e.voice(0).envLevel(), 0.5, 0.02);
+  const float sus = peakFor(0.1f);           // half of full
+  CHECK_NEAR(p25 / sus, 0.5f, 0.05f);        // a quarter of full after 0.25 s
+  CHECK_NEAR(p50 / sus, 1.0f, 0.06f);        // half of full after 0.5 s
+}

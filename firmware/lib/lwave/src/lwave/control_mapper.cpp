@@ -71,6 +71,13 @@ void formatPotValue(const EngineParams& e, Pot pot, char* buf, int size) {
       else snprintf(buf, (size_t)size, "%.2f kHz", v / 1000.0f);
       break;
     case Pot::FilterRes: snprintf(buf, (size_t)size, "Q %.2f", v); break;
+    case Pot::Velocity: {
+      // Nearest of the four points (the knob blends smoothly between them).
+      static const char* const kModes[4] = {"speed->volume", "speed->volume+attack", "speed->attack", "depth->volume"};
+      int m = (int)(v * 3.0f + 0.5f);
+      snprintf(buf, (size_t)size, "%.0f %% (%s)", v * 100.0f, kModes[m < 0 ? 0 : (m > 3 ? 3 : m)]);
+      break;
+    }
     case Pot::Tune: snprintf(buf, (size_t)size, "%+.1f c", v); break;
     case Pot::Detune:
       if (e.detuneCopies == 1) snprintf(buf, (size_t)size, "chorus %.0f %%", v * 100.0f);
@@ -139,6 +146,8 @@ void mapControls(const PanelState& panel, const Settings& s, float maxDelayS, En
   o.velRangeDb = s.velRangeDb;
   o.velAttackSpan = s.velAttackSpan;
   o.depthMode = (int)(s.depthMode + 0.5f);
+  o.swellCurve = s.swellCurve;
+  o.swellStart = s.keyNoteOn;
   o.filterEnvOct = s.filterEnvOct;
   o.meterFallDbS = s.meterFallDbS;
   int copies = (int)(s.detuneCopies + 0.5f);

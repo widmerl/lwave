@@ -85,5 +85,33 @@ core.line('set detune_copies 1');
 check(core.formatPot(DETUNE, 0.6) === 'chorus 60 %', `detune label, chorus (${core.formatPot(DETUNE, 0.6)})`);
 core.line('defaults');
 
+// Velocity knob at 100 %: a slow press swells with the key.
+core.handle({ t: 'key', k: d5, down: false });
+core.handle({ t: 'pot', i: 3, v: 1.0 });
+peakOf(2.0);
+const sk = 10;  // B4
+core.handle({ t: 'key', k: sk, down: true, ms: 1500 });
+const early = peakOf(0.6);
+const late = peakOf(1.2);
+check(late > 2 * early && late > 0.02, `slow press swells (${early.toFixed(4)} -> ${late.toFixed(4)})`);
+core.handle({ t: 'key', k: sk, down: false, ms: 1500 });
+peakOf(2.0);
+
+// ... and the Attack knob limits how fast it may swell: a hard strike with the
+// Attack knob at 10 s is still quiet after 0.3 s, at 10 ms it is already full.
+const ATTACK = 4;
+core.handle({ t: 'pot', i: ATTACK, v: 0.0 });
+core.handle({ t: 'key', k: sk, down: true, v: 1.0 });
+const quickSwell = peakOf(0.3);
+core.handle({ t: 'key', k: sk, down: false }); peakOf(2.0);
+core.handle({ t: 'pot', i: ATTACK, v: 1.0 }); peakOf(0.5);  // let the pot reading settle
+core.handle({ t: 'key', k: sk, down: true, v: 1.0 });
+const slowSwell = peakOf(0.3);
+core.handle({ t: 'key', k: sk, down: false }); peakOf(2.0);
+check(slowSwell < 0.06 * quickSwell && quickSwell > 0.02,
+  `Attack knob limits the swell (${quickSwell.toFixed(4)} at 10 ms, ${slowSwell.toFixed(4)} at 10 s)`);
+core.handle({ t: 'pot', i: ATTACK, v: 0.5 });
+core.handle({ t: 'pot', i: 3, v: 0.5 });
+
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');
 process.exit(failures ? 1 : 0);

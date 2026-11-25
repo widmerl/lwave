@@ -8,7 +8,8 @@ namespace lw {
 /// ADSR envelope, 0..1. Attack is an RC curve aimed past 1 (like an analog
 /// envelope) so it reaches 1 in the attack time. Decay and release fall
 /// exponentially and reach -60 dB of the distance in their time. Releasing
-/// during the attack decays from the current level.
+/// during the attack decays from the current level. While "hold" is set the
+/// decay waits at the peak (used while a key is still travelling down).
 class Adsr {
  public:
   /// Envelope stage.
@@ -22,6 +23,8 @@ class Adsr {
   }
   /// Sets the sustain level 0..1. Takes effect smoothly.
   void setSustain(float level) { sustain_ = level; }
+  /// While true, the envelope stays at its peak instead of starting the decay.
+  void setHold(bool hold) { hold_ = hold; }
   /// Starts the attack from the current level.
   void noteOn() { stage_ = Stage::Attack; }
   /// Starts the release from the current level.
@@ -37,6 +40,7 @@ class Adsr {
         if (level_ >= 1.0f) { level_ = 1.0f; stage_ = Stage::Decay; }
         break;
       case Stage::Decay:
+        if (hold_) break;  // key still on its way down
         level_ += (sustain_ - level_) * decayCoef_;
         if (fabsf(level_ - sustain_) < 1e-4f) stage_ = Stage::Sustain;
         break;
@@ -66,6 +70,7 @@ class Adsr {
   static constexpr float kSixtyDb = 6.9078f;      // ln(1000)
   Stage stage_ = Stage::Idle;
   float level_ = 0.0f, sustain_ = 1.0f;
+  bool hold_ = false;
   float attackCoef_ = 1.0f, decayCoef_ = 1.0f, releaseCoef_ = 1.0f;
 };
 

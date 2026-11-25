@@ -6,7 +6,20 @@
 
 namespace lw {
 
+VelocityKnobWeights velocityKnobWeights(float k) {
+  k = clampf(k, 0.0f, 1.0f);
+  VelocityKnobWeights w;
+  w.speedToAttack = clampf(k * 3.0f, 0.0f, 1.0f);           // 0 → 33 %: rises to full
+  w.speedToLevel = clampf(2.0f - k * 3.0f, 0.0f, 1.0f);     // 33 → 66 %: falls to none
+  w.depthIsLevel = clampf(k * 3.0f - 2.0f, 0.0f, 1.0f);     // 66 → 100 %: rises to full
+  return w;
+}
+
 namespace {
+// A key counts as arrived at the bottom when it is this deep, or when it has not
+// gone deeper (by kRiseStep) for kArriveS.
+constexpr float kArriveDepth = 0.95f, kRiseStep = 0.02f, kArriveS = 0.05f;
+
 // Start phases for osc_random_phase (audio thread only).
 uint32_t gPhaseSeed = 0x9E3779B9u;
 float randomPhase() {
@@ -25,7 +38,10 @@ void Voice::begin(uint8_t key, float note, float velocity, float depth, uint32_t
   key_ = key;
   note_ = note;
   velocity_ = clampf(velocity, 0.0f, 1.0f);
-  depth_ = depthGain_ = clampf(depth, 0.0f, 1.0f);
+  depth_ = depthGain_ = maxDepth_ = clampf(depth, 0.0f, 1.0f);
+  arrived_ = false;
+  sinceRise_ = 0.0f;
+  swellNow_ = 0.0f;
   age_ = age;
   filterType_ = sw.filter;
   lfoWave_ = sw.wave;
@@ -43,6 +59,22 @@ void Voice::begin(uint8_t key, float note, float velocity, float depth, uint32_t
 void Voice::start(uint8_t key, float note, float velocity, float depth, uint32_t age, const EngineParams& p) {
   hasPending_ = false;
   begin(key, note, velocity, depth, age, Switches{p.filterType, p.lfoWave, p.lfoDest, p.oscRandomPhase});
+  depthGain_ = depthLevel(p);  // no glide from a wrong start value
+}
+
+float Voice::swellTarget(const EngineParams& p) const {
+  // Silent at the note-on point, full at the bottom.
+  const float start = p.swellStart < 0.95f ? p.swellStart : 0.95f;
+  const float rel = clampf((depth_ - start) / (1.0f - start), 0.0f, 1.0f);
+  return powf(rel, p.swellCurve);
+}
+
+float Voice::depthLevel(const EngineParams& p) const {
+  const float normal = p.depthMode == 1 ? depth_ : 1.0f;
+  const float swellW = velocityKnobWeights(p.velocityKnob).depthIsLevel;
+  if (swellW <= 0.0f) return normal;
+  // swellNow_ is the depth-driven level after the Attack knob's rise limit.
+  return normal + (swellNow_ - normal) * swellW;
 }
 
 void Voice::steal(uint8_t key, float note, float velocity, float depth, uint32_t age, const EngineParams& p,
@@ -90,15 +122,20 @@ void Voice::kill() {
 }
 
 void Voice::prepareBlock(const EngineParams& p, float sampleRate) {
-  // Velocity knob: how much velocity also scales attack time (span^±1 at 100 %).
-  float attack = p.attack * powf(p.velAttackSpan, p.velocityKnob * (1.0f - 2.0f * velocity_));
+  // Velocity knob: strike speed scales the attack time (span^±1 from 33 %);
+  // towards 100 % the envelope attack fades out and key depth takes over, with
+  // the Attack knob limiting how fast the depth-driven level may rise (render()).
+  const VelocityKnobWeights w = velocityKnobWeights(p.velocityKnob);
+  float attack = p.attack * powf(p.velAttackSpan, w.speedToAttack * (1.0f - 2.0f * velocity_));
+  attack *= 1.0f - w.depthIsLevel;
   env_.setTimes(attack, p.decay, p.release, sampleRate);
 }
 
 void Voice::render(const EngineParams& p, const float* noise, float* out, int n, float sampleRate) {
   if (!active_) return;
   const float dtSub = (float)kSubBlock / sampleRate;
-  const float velGain = dbToGain(-p.velRangeDb * (1.0f - velocity_));
+  const VelocityKnobWeights knobW = velocityKnobWeights(p.velocityKnob);
+  const float velGain = dbToGain(-p.velRangeDb * (1.0f - velocity_) * knobW.speedToLevel);
   const float nyquistGuard = 0.45f;
   const float depthCoef = onePoleCoef(0.004f, sampleRate);  // key depth glides over ~4 ms
 
@@ -132,7 +169,24 @@ void Voice::render(const EngineParams& p, const float* noise, float* out, int n,
     if (!released_ && !fading_) depth_ = p.keyDepth[key_];
     if (p.depthMode == 2) env_.setSustain(p.sustain * depth_);
     else env_.setSustain(p.sustain);
-    const float depthTarget = p.depthMode == 1 ? depth_ : 1.0f;
+    // Depth-driven mode (Velocity knob towards 100 %): the level follows the key
+    // down at once, but rises no faster than 0 to full in the Attack knob's time.
+    // After release it no longer rises.
+    bool caughtUp = true;
+    if (knobW.depthIsLevel > 0.0f) {
+      const float swellT = swellTarget(p);
+      if (swellT <= swellNow_) swellNow_ = swellT;
+      else if (!released_) swellNow_ = fminf(swellT, swellNow_ + dtSub / fmaxf(p.attack, 1e-4f));
+      caughtUp = swellNow_ >= swellT - 1e-4f;
+    }
+    const float depthTarget = depthLevel(p);
+    // The decay waits until the key stops going deeper and the level has caught up.
+    if (!arrived_ && !released_) {
+      sinceRise_ += dtSub;
+      if (depth_ > maxDepth_ + kRiseStep) { maxDepth_ = depth_; sinceRise_ = 0.0f; }
+      if ((depth_ >= kArriveDepth || sinceRise_ >= kArriveS) && caughtUp) arrived_ = true;
+    }
+    env_.setHold(knobW.depthIsLevel > 0.0f && !arrived_ && !released_);
 
     const float f0 = midiToHz(note_ + pitchSemis);
     const float dt0 = f0 / sampleRate;
@@ -241,6 +295,7 @@ void Voice::render(const EngineParams& p, const float* noise, float* out, int n,
         Pending pd = pending_;
         hasPending_ = false;
         begin(pd.key, pd.note, pd.velocity, pd.depth, pd.age, pd.sw);
+        depthGain_ = depthLevel(p);
         if (pd.released) release(pd.frozen);
       } else {
         kill();

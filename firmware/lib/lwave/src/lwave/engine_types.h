@@ -18,7 +18,7 @@ struct EngineParams {
   float lfoDelay = 0.05f;            ///< Seconds: fade-in time (repeating) or start delay (one-shot).
   float lfoStrength = 0.0f;          ///< 0..1.
   // Envelope and velocity
-  float velocityKnob = 0.0f;         ///< 0..1: how much velocity also scales attack time.
+  float velocityKnob = 0.0f;         ///< 0..1: what strike speed and key depth control (see velocityKnobWeights()).
   float attack = 0.005f;             ///< Seconds.
   float decay = 0.3f;                ///< Seconds.
   float sustain = 0.8f;              ///< 0..1.
@@ -55,6 +55,8 @@ struct EngineParams {
   float velRangeDb = 24.0f;          ///< See Settings::velRangeDb.
   float velAttackSpan = 4.0f;        ///< See Settings::velAttackSpan.
   int depthMode = 1;                 ///< See Settings::depthMode.
+  float swellCurve = 2.0f;           ///< See Settings::swellCurve.
+  float swellStart = 0.3f;           ///< Key travel where depth-driven level starts (Settings::keyNoteOn).
   float filterEnvOct = 6.0f;         ///< See Settings::filterEnvOct.
   float meterFallDbS = 40.0f;        ///< See Settings::meterFallDbS.
   int detuneCopies = 2;              ///< See Settings::detuneCopies (1..3).
